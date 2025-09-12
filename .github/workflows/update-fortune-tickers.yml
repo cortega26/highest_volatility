@@ -1,0 +1,27 @@
+name: Update Fortune 500 tickers
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Fetch Fortune 500 tickers
+        run: |
+          python scripts/scrape_fortune_500_tickers.py
+      - name: Upload ticker list
+        uses: actions/upload-artifact@v3
+        with:
+          name: fortune-500-tickers
+          path: fortune500_tickers.csv
