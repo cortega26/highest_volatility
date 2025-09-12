@@ -11,6 +11,8 @@ import pandas as pd
 from highest_volatility.compute.metrics import (
     additional_volatility_measures,
     annualized_volatility,
+    max_drawdown,
+    sharpe_ratio,
 )
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.ingest.tickers import fetch_fortune_tickers
@@ -31,6 +33,8 @@ METRIC_CHOICES = [
     "yz_vol",
     "ewma_vol",
     "mad_vol",
+    "sharpe_ratio",
+    "max_drawdown",
 ]
 
 
@@ -74,7 +78,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--metric",
         choices=METRIC_CHOICES,
         default="cc_vol",
-        help="Volatility metric to rank by",
+        help="Metric to rank by",
     )
     parser.add_argument(
         "--prepost",
@@ -114,7 +118,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     extras = additional_volatility_measures(
         prices, tickers, min_periods=args.min_days, interval=args.interval
     )
-    vols = vols_cc.merge(extras, on="ticker", how="left")
+    sharpe = sharpe_ratio(close)
+    drawdown = max_drawdown(close)
+    vols = (
+        vols_cc.merge(extras, on="ticker", how="left")
+        .merge(sharpe, on="ticker", how="left")
+        .merge(drawdown, on="ticker", how="left")
+    )
     result = fortune.set_index("ticker").join(vols.set_index("ticker"))
     result = result.dropna(subset=[args.metric])
     result = result.sort_values(args.metric, ascending=False)
