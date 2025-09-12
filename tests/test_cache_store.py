@@ -17,6 +17,7 @@ def test_round_trip(tmp_path, monkeypatch):
     manifest = store.save_cache("ABC", "1d", df, "test")
     assert manifest.ticker == "ABC"
     assert manifest.rows == 2
+    assert manifest.updated_at.endswith("Z")
 
     loaded_df, loaded_manifest = store.load_cached("ABC", "1d")
     assert loaded_manifest == manifest

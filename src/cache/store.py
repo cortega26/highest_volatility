@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
 import json
@@ -69,7 +69,8 @@ def save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> Man
         rows=len(df),
         source=source,
         version=1,
-        updated_at=datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        updated_at=
+        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     )
     tmp_manifest = manifest_path.with_suffix(".json.tmp")
     tmp_manifest.write_text(json.dumps(asdict(manifest)))
