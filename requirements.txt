@@ -5,3 +5,6 @@ yfinance
 lxml
 beautifulsoup4
 html5lib
+selenium
+webdriver-manager
+selenium-stealth
