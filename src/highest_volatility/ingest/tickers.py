@@ -82,26 +82,41 @@ def fetch_fortune_tickers(
     headers = {"User-Agent": "Mozilla/5.0"}
     session = session or requests
     results: list[dict] = []
-    page = 1
-    total = None
+    total: int | None = None
+    build_id: str | None = None
+
     try:
-        while True:
-            url = source_url if page == 1 else f"{source_url}?page={page}"
-            response = session.get(url, timeout=30, headers=headers)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-            script = soup.find("script", id="__NEXT_DATA__")
-            if not script or not script.string:
-                break
+        # Fetch the initial HTML page which contains the ``__NEXT_DATA__``
+        # script.  This gives us the first batch of results as well as the
+        # ``buildId`` which is required to access the JSON endpoint for
+        # subsequent pages.
+        response = session.get(source_url, timeout=30, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        script = soup.find("script", id="__NEXT_DATA__")
+        if script and script.string:
             data = json.loads(script.string)
+            build_id = data.get("buildId")
             page_data = data["props"]["pageProps"].get("initialResults", [])
+            results.extend(page_data)
+            stats = data["props"]["pageProps"].get("stats", {})
+            total = stats.get("ffc")
+
+        # Continue fetching more pages via the JSON endpoint.  Each page
+        # contains 50 results; we stop once ``top_n`` or the reported total
+        # number of companies has been reached.
+        page = 2
+        while build_id and (total is None or len(results) < total) and len(results) < top_n:
+            api_url = (
+                f"https://us500.com/_next/data/{build_id}/fortune-500-companies.json?page={page}"
+            )
+            resp = session.get(api_url, timeout=30, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            page_data = data.get("pageProps", {}).get("initialResults", [])
             if not page_data:
                 break
             results.extend(page_data)
-            stats = data["props"]["pageProps"].get("stats", {})
-            total = total or stats.get("ffc")
-            if (total and len(results) >= total) or len(results) >= top_n:
-                break
             page += 1
     except Exception:
         results = []
