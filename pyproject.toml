@@ -1,0 +1,27 @@
+[project]
+name = "highest_volatility"
+version = "0.0.0"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "pyarrow",
+    "yfinance",
+    "pandas-datareader",
+    "tenacity",
+    "joblib",
+    "python-dateutil",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "vcrpy",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
