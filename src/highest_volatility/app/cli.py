@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import List, Optional
 
-from highest_volatility.compute.volatility import annualized_volatility
+from highest_volatility.compute.metrics import annualized_volatility
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.ingest.tickers import fetch_fortune_tickers
 from highest_volatility.storage.csv_store import save_csv
@@ -39,8 +39,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     fortune = fetch_fortune_tickers(top_n=args.top_n)
     tickers = fortune["ticker"].tolist()
     prices = download_price_history(tickers, args.lookback_days)
-    vols = annualized_volatility(prices, min_days=args.min_days)
-    result = fortune.set_index("ticker").join(vols.rename("volatility")).dropna()
+    vols = annualized_volatility(prices, min_days=args.min_days).rename(
+        columns={"annualized_volatility": "volatility"}
+    )
+    result = fortune.set_index("ticker").join(
+        vols.set_index("ticker")
+    ).dropna()
     result = result.sort_values("volatility", ascending=False)
 
     print(result.head(args.print_top).to_string())
