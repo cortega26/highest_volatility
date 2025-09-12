@@ -15,7 +15,7 @@ from highest_volatility.compute.metrics import (
     sharpe_ratio,
 )
 from highest_volatility.ingest.prices import download_price_history
-from highest_volatility.ingest.tickers import fetch_fortune_tickers
+from highest_volatility.universe import build_universe
 from highest_volatility.storage.csv_store import save_csv
 from highest_volatility.storage.sqlite_store import save_sqlite
 
@@ -98,8 +98,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     """Entry point for the CLI."""
 
     args = parse_args(argv)
-    fortune = fetch_fortune_tickers(top_n=args.top_n)
-    tickers = fortune["ticker"].tolist()
+    tickers, fortune = build_universe(args.top_n)
+    if len(tickers) < args.print_top:
+        raise SystemExit(
+            f"Universe too small: got {len(tickers)} tickers, but --print-top={args.print_top}. "
+            "Check pagination / fetch source."
+        )
     prices = download_price_history(
         tickers, args.lookback_days, interval=args.interval, prepost=args.prepost
     )

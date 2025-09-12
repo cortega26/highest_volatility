@@ -19,7 +19,9 @@ def test_cli_rank_by_sharpe_ratio(monkeypatch, capsys):
     prices, fortune = _mock_data()
 
     monkeypatch.setattr(
-        cli, "fetch_fortune_tickers", lambda top_n: fortune.head(top_n)
+        cli,
+        "build_universe",
+        lambda top_n: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
     )
     monkeypatch.setattr(
         cli,
@@ -45,7 +47,9 @@ def test_cli_rank_by_max_drawdown(monkeypatch, capsys):
     prices, fortune = _mock_data()
 
     monkeypatch.setattr(
-        cli, "fetch_fortune_tickers", lambda top_n: fortune.head(top_n)
+        cli,
+        "build_universe",
+        lambda top_n: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
     )
     monkeypatch.setattr(
         cli,
