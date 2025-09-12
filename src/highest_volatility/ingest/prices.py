@@ -9,8 +9,14 @@ import pandas as pd
 import yfinance as yf
 
 
-def download_price_history(tickers: List[str], lookback_days: int) -> pd.DataFrame:
-    """Download adjusted close prices for ``tickers``.
+def download_price_history(
+    tickers: List[str],
+    lookback_days: int,
+    *,
+    interval: str = "1d",
+    prepost: bool = False,
+) -> pd.DataFrame:
+    """Download price history for ``tickers``.
 
     Parameters
     ----------
@@ -18,19 +24,27 @@ def download_price_history(tickers: List[str], lookback_days: int) -> pd.DataFra
         List of ticker symbols compatible with Yahoo Finance.
     lookback_days:
         Number of calendar days of history to request.
+    interval:
+        Data interval supported by Yahoo Finance (e.g. ``1d``, ``60m``, ``15m``).
+    prepost:
+        Include pre/post market data for intraday intervals.
 
     Returns
     -------
     pandas.DataFrame
-        DataFrame indexed by date with one column per ticker.
+        Raw DataFrame as returned by :func:`yfinance.download`.
     """
 
     end = datetime.utcnow()
     start = end - timedelta(days=lookback_days * 2)
     ticker_str = " ".join(tickers)
-    data = yf.download(ticker_str, start=start, end=end, progress=False, auto_adjust=True)
-    if isinstance(data.columns, pd.MultiIndex):
-        data = data["Close"]
-    else:
-        data = data.to_frame(name="Close")
+    data = yf.download(
+        ticker_str,
+        start=start,
+        end=end,
+        interval=interval,
+        progress=False,
+        auto_adjust=False,
+        prepost=prepost,
+    )
     return data.dropna(how="all")
