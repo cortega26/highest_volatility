@@ -75,6 +75,7 @@ def fetch_fortune_tickers(
                     table["rank"] = table["rank"].astype(int)
                     table["ticker"] = table["ticker"].astype(str).map(normalize_ticker)
                     table = table[table["ticker"].str.fullmatch(r"[A-Z]+[A-Z0-9.-]*")]
+                    table = table.drop_duplicates(subset="ticker")
                     return table.sort_values("rank").head(top_n).reset_index(drop=True)
     except Exception:
         pass
@@ -84,6 +85,7 @@ def fetch_fortune_tickers(
     results: list[dict] = []
     total: int | None = None
     build_id: str | None = None
+    seen: set[str] = set()
 
     try:
         # Fetch the initial HTML page which contains the ``__NEXT_DATA__``
@@ -98,7 +100,16 @@ def fetch_fortune_tickers(
             data = json.loads(script.string)
             build_id = data.get("buildId")
             page_data = data["props"]["pageProps"].get("initialResults", [])
-            results.extend(page_data)
+            for rec in page_data:
+                ticker = rec.get("ticker")
+                if not ticker:
+                    continue
+                t = normalize_ticker(str(ticker))
+                if t in seen:
+                    continue
+                rec["ticker"] = t
+                results.append(rec)
+                seen.add(t)
             stats = data["props"]["pageProps"].get("stats", {})
             total = stats.get("ffc")
 
@@ -114,9 +125,20 @@ def fetch_fortune_tickers(
             resp.raise_for_status()
             data = resp.json()
             page_data = data.get("pageProps", {}).get("initialResults", [])
-            if not page_data:
+            new = 0
+            for rec in page_data:
+                ticker = rec.get("ticker")
+                if not ticker:
+                    continue
+                t = normalize_ticker(str(ticker))
+                if t in seen:
+                    continue
+                rec["ticker"] = t
+                results.append(rec)
+                seen.add(t)
+                new += 1
+            if new == 0:
                 break
-            results.extend(page_data)
             page += 1
     except Exception:
         results = []
@@ -124,11 +146,12 @@ def fetch_fortune_tickers(
     if results:
         table = pd.DataFrame(results)
         table = table.rename(columns=str.lower)
-        expected_cols = {"rank", "company", "ticker"}
-        table = table[list(expected_cols)]
+        expected_cols = ["rank", "company", "ticker"]
+        table = table[expected_cols]
         table["rank"] = table["rank"].astype(int)
-        table["ticker"] = table["ticker"].astype(str).map(normalize_ticker)
+        table["ticker"] = table["ticker"].astype(str)
         table = table[table["ticker"].str.fullmatch(r"[A-Z]+[A-Z0-9.-]*")]
+        table = table.drop_duplicates(subset="ticker")
         table = table.sort_values("rank").head(top_n).reset_index(drop=True)
 
         # Store to cache
