@@ -54,7 +54,7 @@ def daily_returns(prices: pd.DataFrame) -> pd.DataFrame:
     >>> pd.testing.assert_frame_equal(daily_returns(prices), expected)
     """
 
-    returns = prices.pct_change().iloc[1:]
+    returns = prices.pct_change(fill_method=None).iloc[1:]
     return (
         returns.stack()
         .rename("daily_return")
@@ -212,7 +212,7 @@ def sharpe_ratio(prices: pd.DataFrame, *, risk_free: float = 0.0) -> pd.DataFram
     {'ticker': {0: 'A'}, 'sharpe_ratio': {0: 6.73}}
     """
 
-    returns = prices.pct_change().dropna()
+    returns = prices.pct_change(fill_method=None).dropna()
     excess = returns - risk_free / TRADING_DAYS_PER_YEAR
     mean = excess.mean()
     std = returns.std()
