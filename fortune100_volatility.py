@@ -44,6 +44,7 @@ import argparse
 import math
 import io
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 # Optional Selenium imports are performed lazily in code paths that need them.
@@ -486,8 +487,8 @@ def extract_fortune100_with_tickers(table: pd.DataFrame, top_n: int = DEFAULT_TO
     slim["Ticker"] = slim["Ticker"].astype(str).str.strip()
     before_filter = slim.shape[0]
     slim = slim[slim["Ticker"].str.len() > 0]
-    slim = slim[~slim["Ticker"].str.contains(
-        "^-$|^N/A$", case=False, regex=True)]
+    # Drop obvious placeholders/non-tickers used on the site
+    slim = slim[~slim["Ticker"].str.contains(r"^(?:-|~|—|–|N/?A|NA)$", case=False, regex=True)]
     # Keep only plausible ticker patterns (letters/numbers, dot or dash for class shares)
     plausible = slim["Ticker"].str.match(r"^[A-Za-z0-9][A-Za-z0-9\.-]{0,9}$")
     removed = before_filter - int(plausible.sum())
@@ -516,6 +517,80 @@ def extract_fortune100_with_tickers(table: pd.DataFrame, top_n: int = DEFAULT_TO
     deduped = list(seen.values())
     _debug_print(debug, f"Deduped to {len(deduped)} unique tickers")
     return deduped
+
+
+def analyze_missing_tickers(table: pd.DataFrame, top_n: int, *, debug: bool = False) -> List[Dict[str, str]]:
+    """
+    Inspect the top_n rows of the scraped table and return a list of entries that
+    were excluded due to missing or implausible tickers. Each entry is a dict with
+    keys: fortune_rank, company, raw_ticker, reason.
+    """
+    # Reuse the same normalization heuristics as extraction
+    df = table.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+
+    colmap = {}
+    for c in df.columns:
+        cl = c.lower()
+        if "rank" == cl:
+            colmap["rank"] = c
+        elif cl in ("company", "company name", "name"):
+            colmap["company"] = c
+        elif cl in ("ticker", "symbol", "ticker symbol", "stock ticker"):
+            colmap["ticker"] = c
+
+    if "rank" not in colmap:
+        candidates = [c for c in df.columns if "rank" in c.lower()]
+        if candidates:
+            colmap["rank"] = candidates[0]
+    if "company" not in colmap:
+        candidates = [c for c in df.columns if "company" in c.lower() or "name" in c.lower()]
+        if candidates:
+            colmap["company"] = candidates[0]
+    if "ticker" not in colmap:
+        candidates = [c for c in df.columns if any(x in c.lower() for x in ("ticker", "symbol"))]
+        if candidates:
+            colmap["ticker"] = candidates[0]
+
+    # If columns cannot be identified, nothing to analyze
+    if any(k not in colmap for k in ("rank", "company", "ticker")):
+        return []
+
+    slim = df[[colmap["rank"], colmap["company"], colmap["ticker"]]].copy()
+    slim.columns = ["Rank", "Company", "Ticker"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        slim["Rank"] = pd.to_numeric(slim["Rank"], errors="coerce")
+    slim = slim.dropna(subset=["Rank", "Company"]).sort_values("Rank").head(top_n)
+
+    missing: List[Dict[str, str]] = []
+    for _, row in slim.iterrows():
+        rank = int(row["Rank"])
+        company = str(row["Company"]).strip()
+        raw = str(row["Ticker"]) if pd.notna(row["Ticker"]) else ""
+        t = raw.strip()
+        reason = None
+        if len(t) == 0:
+            reason = "empty"
+        elif t.strip().upper() in ("-", "~", "—", "–", "NA", "N/A"):
+            reason = "placeholder"
+        elif not bool(pd.Series([t]).str.match(r"^[A-Za-z0-9][A-Za-z0-9\.-]{0,9}$").iloc[0]):
+            reason = "implausible"
+        else:
+            continue  # looks valid; not missing
+        missing.append({
+            "fortune_rank": rank,
+            "company": company,
+            "raw_ticker": t,
+            "reason": reason,
+        })
+
+    if debug and missing:
+        by_reason = {}
+        for m in missing:
+            by_reason[m["reason"]] = by_reason.get(m["reason"], 0) + 1
+        _debug_print(debug, f"Missing/invalid ticker breakdown: {by_reason}")
+    return sorted(missing, key=lambda x: x["fortune_rank"]) 
 
 
 def _fetch_html_with_selenium(url: str, *, debug: bool = False, timeout: int = 20, headless: bool = True) -> str:
@@ -548,8 +623,27 @@ def _fetch_html_with_selenium(url: str, *, debug: bool = False, timeout: int = 2
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument(
             "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36")
+        # Suppress noisy Chrome logs like DevTools listening / GCM DEPRECATED_ENDPOINT
+        chrome_options.add_argument("--disable-notifications")
+        chrome_options.add_argument("--no-default-browser-check")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--disable-logging")
+        try:
+            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
+            chrome_options.add_experimental_option('useAutomationExtension', False)
+        except Exception:
+            pass
 
         service = ChromeService(ChromeDriverManager().install())
+        # Suppress ChromeDriver logs to console if supported
+        try:
+            from subprocess import DEVNULL
+            service.log_output = DEVNULL  # Selenium 4.9+
+        except Exception:
+            try:
+                service = ChromeService(ChromeDriverManager().install(), log_path=os.devnull)  # older Selenium
+            except Exception:
+                pass
         driver = webdriver.Chrome(service=service, options=chrome_options)
 
         # Apply selenium-stealth if available
@@ -615,9 +709,25 @@ def _scrape_us500_with_selenium_pages(base_url: str, *, debug: bool = False, tim
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument(
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36")
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36")
+    options.add_argument("--disable-notifications")
+    options.add_argument("--no-default-browser-check")
+    options.add_argument("--no-first-run")
+    options.add_argument("--disable-logging")
+    try:
+        options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
+        options.add_experimental_option('useAutomationExtension', False)
+    except Exception:
+        pass
     service = ChromeService(ChromeDriverManager().install())
+    try:
+        from subprocess import DEVNULL
+        service.log_output = DEVNULL
+    except Exception:
+        try:
+            service = ChromeService(ChromeDriverManager().install(), log_path=os.devnull)
+        except Exception:
+            pass
     driver = webdriver.Chrome(service=service, options=options)
 
     try:
@@ -1108,7 +1218,7 @@ def _try_us500_chunk_api(page_url: str, html_text: str, *, headers: Dict[str, st
     return df
 
 
-def download_prices(tickers: List[str], lookback_days: int) -> pd.DataFrame:
+def download_prices(tickers: List[str], lookback_days: int, *, interval: str = "1d", prepost: bool = False) -> pd.DataFrame:
     """
     Download daily OHLCV for given tickers and return a MultiIndex DataFrame as returned by yfinance.
     Uses start date set to lookback_days*1.5 to increase chance of getting enough trading days, then trims to last N days.
@@ -1127,11 +1237,12 @@ def download_prices(tickers: List[str], lookback_days: int) -> pd.DataFrame:
     data = yf.download(
         tickers=tickers,
         period=period_str,
-        interval="1d",
+        interval=interval,
         auto_adjust=False,      # keep Adj Close column available
         group_by="column",      # columns: top level is OHLCV field
         threads=True,
         progress=False,
+        prepost=prepost,
     )
 
     if data.empty:
@@ -1142,6 +1253,228 @@ def download_prices(tickers: List[str], lookback_days: int) -> pd.DataFrame:
     data = data.tail(lookback_days + 2)  # +2 to provide shift/return buffer
     return data
 
+
+def _ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+
+def _sanitize_ticker_for_path(t: str) -> str:
+    # Replace characters that are problematic on filesystems
+    return (
+        t.replace("/", "_")
+        .replace("\\", "_")
+        .replace(":", "_")
+        .replace("*", "_")
+        .replace("?", "_")
+        .replace("\"", "_")
+        .replace("<", "_")
+        .replace(">", "_")
+        .replace("|", "_")
+    )
+
+
+def _ticker_cache_path(cache_dir: Path, ticker: str, fmt: str) -> Path:
+    t = _sanitize_ticker_for_path(ticker)
+    ext = ".parquet" if fmt == "parquet" else ".csv"
+    return cache_dir / f"{t}{ext}"
+
+
+def _load_cached_ticker(cache_dir: Path, ticker: str, fmt: str, debug: bool = False) -> pd.DataFrame:
+    # Try preferred format first, then alternate if not found
+    fp_pref = _ticker_cache_path(cache_dir, ticker, fmt)
+    fp_alt = _ticker_cache_path(cache_dir, ticker, "csv" if fmt == "parquet" else "parquet")
+    fp = fp_pref if fp_pref.exists() else (fp_alt if fp_alt.exists() else None)
+    if fp is None:
+        return pd.DataFrame()
+    try:
+        if fp.suffix.lower() == ".parquet":
+            df = pd.read_parquet(fp)
+        else:
+            df = pd.read_csv(fp, parse_dates=["Date"], index_col="Date")
+        # Ensure expected columns exist
+        expected = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+        missing = [c for c in expected if c not in df.columns]
+        if missing and debug:
+            _debug_print(debug, f"Cache for {ticker} missing columns {missing}; will refresh on fetch")
+        return df
+    except Exception as e:
+        if debug:
+            _debug_print(debug, f"Failed to read cache for {ticker} at {fp}: {e}")
+        return pd.DataFrame()
+
+
+def _save_cached_ticker(cache_dir: Path, ticker: str, fmt: str, df: pd.DataFrame, debug: bool = False) -> None:
+    fp = _ticker_cache_path(cache_dir, ticker, fmt)
+    try:
+        if fmt == "parquet":
+            try:
+                df.to_parquet(fp)
+                return
+            except Exception as e_parq:
+                # Fallback to CSV if parquet engine unavailable
+                fp_csv = _ticker_cache_path(cache_dir, ticker, "csv")
+                if debug:
+                    _debug_print(debug, f"Parquet write failed for {ticker} ({e_parq}); falling back to CSV at {fp_csv}")
+                df.to_csv(fp_csv, index=True, date_format="%Y-%m-%d")
+                return
+        else:
+            df.to_csv(fp, index=True, date_format="%Y-%m-%d")
+    except Exception as e:
+        if debug:
+            _debug_print(debug, f"Failed to write cache for {ticker} at {fp}: {e}")
+
+
+def _yf_download_single(ticker: str, start: Optional[pd.Timestamp], end: Optional[pd.Timestamp], *, interval: str = "1d", prepost: bool = False, debug: bool = False) -> pd.DataFrame:
+    try:
+        df = yf.download(
+            tickers=ticker,
+            start=None if start is None else start.strftime("%Y-%m-%d"),
+            end=None if end is None else end.strftime("%Y-%m-%d"),
+            interval=interval,
+            auto_adjust=False,
+            group_by="column",
+            progress=False,
+            threads=False,
+            prepost=prepost,
+        )
+        # Single-ticker returns simple columns
+        if df is None or df.empty:
+            return pd.DataFrame()
+        df = df.dropna(how="all")
+        # Ensure DatetimeIndex name consistency
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(None)
+        df.index.name = "Date"
+        return df
+    except Exception as e:
+        if debug:
+            _debug_print(debug, f"yfinance single download failed for {ticker}: {e}")
+        return pd.DataFrame()
+
+
+def get_prices_with_cache(
+    tickers: List[str],
+    lookback_days: int,
+    cache_dir: str = "cache/prices",
+    storage_format: str = "parquet",
+    interval: str = "1d",
+    prepost: bool = False,
+    debug: bool = False,
+) -> pd.DataFrame:
+    """
+    Incremental caching for OHLCV per ticker.
+    - Stores per-ticker files in `cache_dir` with chosen `storage_format` (parquet default).
+    - On each run, loads cache, fetches only missing forward dates, and backfills if cache is too short.
+    - Returns a MultiIndex DataFrame similar to yf.download multi-ticker, trimmed to the last lookback_days + 2 rows.
+    """
+    # Separate cache per interval to avoid mixing daily and intraday
+    cache_path = Path(cache_dir) / interval
+    _ensure_dir(cache_path)
+    today = pd.Timestamp.utcnow().normalize()
+    # Reasonable backfill horizon on first run or short cache
+    approx_calendar_days = int(math.ceil(lookback_days * 2.0 * 365.0 / 252.0))
+    backfill_start = today - pd.Timedelta(days=approx_calendar_days)
+
+    per_ticker: Dict[str, pd.DataFrame] = {}
+    # Load cache and determine fetch needs
+    for t in tickers:
+        df_cache = _load_cached_ticker(cache_path, t, storage_format, debug=debug)
+        # Normalize columns
+        if not df_cache.empty:
+            needed_cols = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+            for c in needed_cols:
+                if c not in df_cache.columns:
+                    df_cache[c] = np.nan
+            df_cache = df_cache[needed_cols]
+        per_ticker[t] = df_cache
+
+    # If no caches exist for a majority of tickers, bootstrap via bulk download for speed
+    cached_count = sum(1 for dfc in per_ticker.values() if not dfc.empty)
+    if cached_count < max(1, int(0.5 * len(tickers))):
+        if debug:
+            _debug_print(debug, f"Cache bootstrap: {cached_count}/{len(tickers)} present; performing bulk download")
+        bulk = download_prices(tickers, lookback_days=lookback_days, interval=interval, prepost=prepost)
+        # Split per ticker and save
+        fields = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+        for t in tickers:
+            frames = {}
+            for f in fields:
+                try:
+                    if isinstance(bulk.columns, pd.MultiIndex) and (f, t) in bulk.columns:
+                        frames[f] = bulk[(f, t)].dropna()
+                    elif f in bulk.columns and t in getattr(bulk, f, pd.DataFrame()).columns:
+                        frames[f] = bulk[f][t].dropna()
+                except Exception:
+                    continue
+            if frames:
+                df_t = pd.DataFrame(frames).dropna(how="all")
+                if not df_t.empty:
+                    df_t.index.name = "Date"
+                    _save_cached_ticker(cache_path, t, storage_format, df_t, debug=debug)
+                    per_ticker[t] = df_t
+        # Return bulk combined (already last lookback window)
+        return bulk.tail(lookback_days + 2)
+
+    # Forward update per ticker and backfill if needed
+    for t, df_cache in per_ticker.items():
+        last_date = df_cache.index.max() if not df_cache.empty else None
+        # Determine start for fetch
+        start_fetch: Optional[pd.Timestamp]
+        if last_date is None:
+            start_fetch = backfill_start
+        else:
+            start_fetch = last_date + pd.Timedelta(days=1)
+            # If cache too short, backfill from earlier date
+            if df_cache.shape[0] < (lookback_days + 5):
+                earlier = today - pd.Timedelta(days=approx_calendar_days)
+                start_fetch = min(start_fetch, earlier)
+        end_fetch = None  # up to latest
+        if start_fetch is not None and start_fetch <= today:
+            df_new = _yf_download_single(t, start_fetch, end_fetch, interval=interval, prepost=prepost, debug=debug)
+            if not df_new.empty:
+                combined = pd.concat([df_cache, df_new])
+                combined = combined[~combined.index.duplicated(keep="last")].sort_index()
+                per_ticker[t] = combined
+                _save_cached_ticker(cache_path, t, storage_format, combined, debug=debug)
+                if debug:
+                    _debug_print(debug, f"Updated cache for {t}: +{df_new.shape[0]} rows (total={combined.shape[0]})")
+        # Ensure saved even if no fetch but new ticket without file
+        elif df_cache.empty:
+            # Try initial fetch if completely empty
+            df_new = _yf_download_single(t, backfill_start, None, interval=interval, prepost=prepost, debug=debug)
+            if not df_new.empty:
+                per_ticker[t] = df_new
+                _save_cached_ticker(cache_path, t, storage_format, df_new, debug=debug)
+                if debug:
+                    _debug_print(debug, f"Initialized cache for {t}: {df_new.shape[0]} rows")
+
+    # Build combined MultiIndex raw DataFrame
+    fields = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+    parts = []
+    for field in fields:
+        cols = {}
+        for t, df in per_ticker.items():
+            if not df.empty and field in df.columns:
+                s = df[field]
+                if isinstance(s, pd.Series):
+                    cols[t] = s
+        if cols:
+            try:
+                wide = pd.concat(cols, axis=1)
+            except Exception as e:
+                if debug:
+                    _debug_print(debug, f"Failed to combine series for field {field}: {e}")
+                continue
+            wide.columns = pd.Index(wide.columns, name=None)
+            # Create MultiIndex columns
+            wide.columns = pd.MultiIndex.from_product([[field], list(wide.columns)])
+            parts.append(wide)
+    if not parts:
+        raise RuntimeError("No cached or fetched data available for the requested tickers.")
+    combined = pd.concat(parts, axis=1).sort_index()
+    # Trim to last lookback_days + 2 rows for downstream returns
+    combined = combined.tail(lookback_days + 2)
+    return combined
 
 def build_price_matrix(data: pd.DataFrame, tickers: List[str]) -> pd.DataFrame:
     """
@@ -1189,7 +1522,7 @@ def build_price_matrix(data: pd.DataFrame, tickers: List[str]) -> pd.DataFrame:
     return wide
 
 
-def compute_annualized_volatility(price_wide: pd.DataFrame, min_days: int = DEFAULT_MIN_DAYS) -> pd.DataFrame:
+def compute_annualized_volatility(price_wide: pd.DataFrame, min_days: int = DEFAULT_MIN_DAYS, *, annualization_factor: float = 252.0) -> pd.DataFrame:
     """
     Compute annualized volatility for each column (ticker) in the price_wide matrix.
     Volatility metric: std dev of daily log returns * sqrt(252)
@@ -1207,7 +1540,7 @@ def compute_annualized_volatility(price_wide: pd.DataFrame, min_days: int = DEFA
         if n < min_days:
             continue
         daily_std = float(s.std(ddof=1))
-        ann_vol = daily_std * math.sqrt(252.0)
+        ann_vol = daily_std * math.sqrt(annualization_factor)
         results.append((t, n, daily_std, ann_vol))
 
     out = pd.DataFrame(results, columns=[
@@ -1249,6 +1582,7 @@ def compute_additional_vol_measures(
     min_days: int = DEFAULT_MIN_DAYS,
     ewma_lambda: float = 0.94,
     debug: bool = False,
+    annualization_factor: float = 252.0,
 ) -> pd.DataFrame:
     """
     Compute additional, widely used daily volatility estimators per ticker over the lookback window:
@@ -1291,7 +1625,7 @@ def compute_additional_vol_measures(
             hl = np.log(df["high"] / df["low"]) ** 2
             parkinson_var = (hl.sum()) / (4.0 * ln2 * df.shape[0])
             if np.isfinite(parkinson_var) and parkinson_var >= 0:
-                rec["parkinson_vol"] = float(np.sqrt(parkinson_var) * np.sqrt(252.0))
+                rec["parkinson_vol"] = float(np.sqrt(parkinson_var) * np.sqrt(annualization_factor))
 
         # Garman-Klass and Rogers-Satchell and Yang-Zhang (require OHLC)
         if {"open", "high", "low", "close"}.issubset(df.columns):
@@ -1299,14 +1633,14 @@ def compute_additional_vol_measures(
             log_co = np.log(df["close"] / df["open"]) ** 2
             gk_var = 0.5 * log_hl.mean() - (2.0 * ln2 - 1.0) * log_co.mean()
             if np.isfinite(gk_var) and gk_var >= 0:
-                rec["gk_vol"] = float(np.sqrt(gk_var) * np.sqrt(252.0))
+                rec["gk_vol"] = float(np.sqrt(gk_var) * np.sqrt(annualization_factor))
 
             # Rogers-Satchell per-day term
             term_rs = np.log(df["high"] / df["close"]) * np.log(df["high"] / df["open"]) + \
                 np.log(df["low"] / df["close"]) * np.log(df["low"] / df["open"])
             rs_var = term_rs.mean()
             if np.isfinite(rs_var) and rs_var >= 0:
-                rec["rs_vol"] = float(np.sqrt(rs_var) * np.sqrt(252.0))
+                rec["rs_vol"] = float(np.sqrt(rs_var) * np.sqrt(annualization_factor))
 
             # Yang-Zhang components
             prev_close = df["close"].shift(1)
@@ -1323,7 +1657,7 @@ def compute_additional_vol_measures(
                 k = 0.34
                 yz_var = sigma_o2 + k * sigma_c2 + (1.0 - k) * sigma_rs
                 if yz_var >= 0:
-                    rec["yz_vol"] = float(np.sqrt(yz_var) * np.sqrt(252.0))
+                    rec["yz_vol"] = float(np.sqrt(yz_var) * np.sqrt(annualization_factor))
 
         # EWMA on close-to-close returns
         if r_cc.shape[0] >= min_days:
@@ -1332,11 +1666,11 @@ def compute_additional_vol_measures(
             for x in r_cc.iloc[-min_days:]:
                 var = lam * var + (1.0 - lam) * float(x * x)
             if var >= 0:
-                rec["ewma_vol"] = float(np.sqrt(var) * np.sqrt(252.0))
+                rec["ewma_vol"] = float(np.sqrt(var) * np.sqrt(annualization_factor))
 
             # Robust MAD-based volatility
             mad = float(np.median(np.abs(r_cc - np.median(r_cc))))
-            rec["mad_vol"] = float(1.4826 * mad * np.sqrt(252.0))
+            rec["mad_vol"] = float(1.4826 * mad * np.sqrt(annualization_factor))
 
         results.append(rec)
 
@@ -1405,6 +1739,16 @@ def main() -> int:
                         help="Run Selenium in a visible browser (not headless)")
     parser.add_argument("--source-file", type=str, default=None,
                         help="Local CSV/HTML file containing Rank, Company, Ticker columns to bypass web fetch")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Disable local price cache and always fetch from network")
+    parser.add_argument("--cache-dir", type=str, default="cache/prices",
+                        help="Directory to store per-ticker cached OHLCV files")
+    parser.add_argument("--storage-format", choices=["parquet", "csv"], default="parquet",
+                        help="Cache file format (parquet recommended)")
+    parser.add_argument("--interval", choices=["1d", "60m", "30m", "15m", "5m", "1m"], default="1d",
+                        help="Price interval (daily or intraday). Intraday history is limited by Yahoo")
+    parser.add_argument("--prepost", action="store_true",
+                        help="Include pre/post market data for intraday intervals")
     args = parser.parse_args()
 
     # --- Step 1: Scrape Fortune 500 page and extract Fortune 100 with tickers
@@ -1452,7 +1796,23 @@ def main() -> int:
         f"[3/5] Downloading ~{args.lookback_days} trading days of daily prices for {len(tickers)} tickers via yfinance...")
     start_t = time.time()
     try:
-        raw = download_prices(tickers, lookback_days=args.lookback_days)
+        if args.no_cache:
+            raw = download_prices(tickers, lookback_days=args.lookback_days, interval=args.interval, prepost=args.prepost)
+        else:
+            try:
+                raw = get_prices_with_cache(
+                    tickers,
+                    lookback_days=args.lookback_days,
+                    cache_dir=args.cache_dir,
+                    storage_format=args.storage_format,
+                    interval=args.interval,
+                    prepost=args.prepost,
+                    debug=args.debug,
+                )
+            except Exception as e_cache:
+                if args.debug:
+                    print(f"[DEBUG] Cache fetch failed ({e_cache}); falling back to direct download")
+                raw = download_prices(tickers, lookback_days=args.lookback_days, interval=args.interval, prepost=args.prepost)
     except Exception as e:
         print(f"ERROR: Price download failed: {e}", file=sys.stderr)
         return 2
@@ -1528,6 +1888,17 @@ def main() -> int:
     missing_tickers = total_requested - len(entries)
     if missing_tickers > 0:
         print(f"Note: {missing_tickers} of the top {total_requested} Fortune entries appear to be private / have no ticker and were excluded.")
+        try:
+            missing = analyze_missing_tickers(table, top_n=total_requested, debug=args.debug)
+            if missing:
+                lines = [
+                    f"  #{m['fortune_rank']:>3d} {m['company']} (ticker='{m['raw_ticker']}', reason={m['reason']})"
+                    for m in missing
+                ]
+                print("Excluded entries (no/invalid ticker):\n" + "\n".join(lines))
+        except Exception as e:
+            if args.debug:
+                print(f"[DEBUG] analyze_missing_tickers failed: {e}")
 
     return 0
 
