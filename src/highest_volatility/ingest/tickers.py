@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import json
+
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 
 
 @dataclass
@@ -35,25 +38,33 @@ def normalize_ticker(ticker: str) -> str:
 
 
 def fetch_fortune_tickers(source_url: str = DEFAULT_SOURCE_URL, *, top_n: int = 100) -> pd.DataFrame:
-    """Fetch the Fortune 500 table and return the first *top_n* rows with tickers.
+    """Fetch the Fortune company list and return the first *top_n* rows.
 
-    If the remote data cannot be retrieved, a small built-in list of well known
-    tickers is returned instead.
+    The primary data source is ``us500.com`` which renders its table via
+    JavaScript.  To avoid introducing a full browser dependency, we parse the
+    ``__NEXT_DATA__`` JSON blob embedded in the page which contains the
+    information for the first 50 companies.  If anything goes wrong a small
+    built-in fallback list is returned instead.
     """
 
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         response = requests.get(source_url, timeout=30, headers=headers)
         response.raise_for_status()
-        tables = pd.read_html(response.text)
-        table = tables[0]
-        table = table.rename(columns=str.lower)
-        expected_cols = {"rank", "company", "ticker"}
-        if expected_cols.issubset(set(table.columns)):
-            table = table[list(expected_cols)].head(top_n)
-            table["ticker"] = table["ticker"].astype(str).map(normalize_ticker)
-            table = table[table["ticker"] != ""]
-            return table.reset_index(drop=True)
+        soup = BeautifulSoup(response.text, "html.parser")
+        script = soup.find("script", id="__NEXT_DATA__")
+        if script and script.string:
+            data = json.loads(script.string)
+            companies = data["props"]["pageProps"].get("initialResults", [])
+            if companies:
+                table = pd.DataFrame(companies)
+                table = table.rename(columns=str.lower)
+                expected_cols = {"rank", "company", "ticker"}
+                table = table[list(expected_cols)].head(top_n)
+                table["rank"] = table["rank"].astype(int)
+                table["ticker"] = table["ticker"].astype(str).map(normalize_ticker)
+                table = table[table["ticker"].str.fullmatch(r"[A-Z]+[A-Z0-9.-]*")]  # drop entries without a valid ticker
+                return table.reset_index(drop=True)
     except Exception:
         pass
 
