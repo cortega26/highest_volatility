@@ -108,3 +108,22 @@ def test_cached_list_refreshed_after_expiry(tmp_path):
     assert session_new.calls  # network was used
     assert df2.iloc[0]["company"] == "X"
 
+
+def test_duplicate_pages_do_not_duplicate_results(tmp_path):
+    companies = [
+        {"rank": i + 1, "company": f"C{i}", "ticker": f"T{i}"} for i in range(50)
+    ]
+    html_page = _build_html_page(companies, total=100)
+    # page 2 returns the same companies again
+    json_pages = {2: _build_json_page(companies)}
+    session = DummySession(html_page, json_pages)
+
+    df = tickers.fetch_fortune_tickers(top_n=60, cache_dir=tmp_path, session=session)
+
+    # Only the first 50 unique tickers should be returned
+    assert len(df) == 50
+    # Ensure only the first additional page was requested
+    assert session.calls[-1].endswith(
+        f"/_next/data/{BUILD_ID}/fortune-500-companies.json?page=2"
+    )
+
