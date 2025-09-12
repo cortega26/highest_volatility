@@ -43,6 +43,75 @@ def normalize_ticker(ticker: str) -> str:
     return t.replace(".", "-")
 
 
+def _fetch_with_selenium(source_url: str, top_n: int) -> pd.DataFrame:
+    """Fetch the Fortune list via Selenium Stealth.
+
+    The web site backing the list renders its table client side and limits the
+    JSON endpoint to the first 50 rows.  When that happens we resort to a
+    headless browser that mimics a real user.  ``selenium-stealth`` is used to
+    reduce the chance of being blocked.
+    """
+
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium_stealth import stealth
+
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
+    try:
+        stealth(
+            driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
+        driver.get(source_url)
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "table tbody tr"))
+        )
+        html = driver.page_source
+    finally:
+        driver.quit()
+
+    soup = BeautifulSoup(html, "html.parser")
+    rows = soup.select("table tbody tr")
+    records: list[dict] = []
+    seen: set[str] = set()
+    for row in rows:
+        cols = [c.get_text(strip=True) for c in row.find_all("td")]
+        if len(cols) < 3:
+            continue
+        try:
+            rank = int(cols[0])
+        except ValueError:
+            continue
+        company = cols[1]
+        ticker = normalize_ticker(cols[2])
+        if ticker in seen:
+            continue
+        records.append({"rank": rank, "company": company, "ticker": ticker})
+        seen.add(ticker)
+        if len(records) >= top_n:
+            break
+
+    df = pd.DataFrame(records)
+    if not df.empty:
+        df = df.sort_values("rank").reset_index(drop=True)
+    return df
+
+
 def fetch_fortune_tickers(
     source_url: str = DEFAULT_SOURCE_URL,
     *,
@@ -55,10 +124,12 @@ def fetch_fortune_tickers(
 
     Results are cached on disk in ``.cache/tickers`` to avoid repeated
     network requests.  The primary data source is ``us500.com`` which renders
-    its table via JavaScript.  We parse the ``__NEXT_DATA__`` JSON blob
-    embedded in the page and iterate over all pages until the full list has
-    been collected.  If anything goes wrong a small built-in fallback list is
-    returned instead.
+    its table via JavaScript.  We parse the ``__NEXT_DATA__`` JSON blob and
+    iterate over the paginated JSON API.  Some deployments of the site limit
+    that endpoint to the first 50 rows; when fewer than ``top_n`` rows are
+    returned we automatically fall back to a headless Selenium session using
+    ``selenium-stealth`` to fetch the full table.  If everything fails a small
+    built-in fallback list is returned instead.
     """
 
     cache_path = Path(cache_dir) / CACHE_FILE
@@ -152,17 +223,65 @@ def fetch_fortune_tickers(
         table["ticker"] = table["ticker"].astype(str)
         table = table[table["ticker"].str.fullmatch(r"[A-Z]+[A-Z0-9.-]*")]
         table = table.drop_duplicates(subset="ticker")
-        table = table.sort_values("rank").head(top_n).reset_index(drop=True)
+        table = table.sort_values("rank").reset_index(drop=True)
 
-        # Store to cache
+        if len(table) >= min(top_n, total or len(table)):
+            table = table.head(top_n)
+
+            # Store to cache
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                with cache_path.open("w") as fh:
+                    json.dump(
+                        {"timestamp": time.time(), "data": table.to_dict(orient="records")},
+                        fh,
+                    )
+            except Exception:
+                pass
+
+            return table
+        # If we did not get enough rows attempt Selenium fallback when no
+        # custom session is provided (tests use a dummy session).
+        if session is None:
+            try:
+                sel_table = _fetch_with_selenium(source_url, top_n)
+                if not sel_table.empty:
+                    try:
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        with cache_path.open("w") as fh:
+                            json.dump(
+                                {
+                                    "timestamp": time.time(),
+                                    "data": sel_table.to_dict(orient="records"),
+                                },
+                                fh,
+                            )
+                    except Exception:
+                        pass
+                    return sel_table.head(top_n)
+            except Exception:
+                pass
+
+        return table.head(top_n)
+
+    # No results from the JSON endpoint – try Selenium before falling back to
+    # the built-in list.
+    if session is None:
         try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with cache_path.open("w") as fh:
-                json.dump({"timestamp": time.time(), "data": table.to_dict(orient="records")}, fh)
+            sel_table = _fetch_with_selenium(source_url, top_n)
+            if not sel_table.empty:
+                try:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    with cache_path.open("w") as fh:
+                        json.dump(
+                            {"timestamp": time.time(), "data": sel_table.to_dict(orient="records")},
+                            fh,
+                        )
+                except Exception:
+                    pass
+                return sel_table.head(top_n)
         except Exception:
             pass
-
-        return table
 
     fallback_df = pd.DataFrame([f.__dict__ for f in FALLBACK_TICKERS])
     return fallback_df.head(top_n)
