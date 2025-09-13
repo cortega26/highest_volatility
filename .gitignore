@@ -1,6 +1,10 @@
-*.csv
 *.json
 *.html
 __pycache__/
 *.log
 !fortune500_tickers.csv
+.env
+.DS_Store
+.vscode/
+.idea/
+*.pyc
