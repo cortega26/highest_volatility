@@ -1,0 +1,29 @@
+name: Daily price fetch
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Fetch prices with retry
+        run: |
+          intervals=(1m 5m 10m 15m 30m 60m 1d)
+          tickers="AAPL MSFT AMZN GOOGL META"
+          for intv in "${intervals[@]}"; do
+            until python -m src.cli --interval "$intv" --tickers $tickers; do
+              echo "Retrying $intv..."
+              sleep 30
+            done
+          done

@@ -11,3 +11,4 @@ selenium-stealth
 pyarrow
 pytest
 aiohttp
+tenacity
