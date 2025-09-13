@@ -25,3 +25,45 @@ METRICS = {'my_metric': my_metric}
     importlib.reload(metrics)
     metrics.load_plugins()
     assert 'my_metric' in metrics.METRIC_REGISTRY
+
+
+def _sample_price_matrix() -> pd.DataFrame:
+    idx = pd.date_range("2020-01-01", periods=5)
+    close = pd.DataFrame(
+        {
+            "A": [100, 110, 105, 102, 100],
+            "B": [100, 90, 95, 94, 96],
+        },
+        index=idx,
+    )
+    return pd.concat({"Adj Close": close}, axis=1)
+
+
+def test_value_at_risk_metric():
+    prices = _sample_price_matrix()
+    result = metrics.METRIC_REGISTRY["var"](prices)
+    expected = pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "var": [-0.042922, -0.086579],
+        }
+    )
+    pd.testing.assert_frame_equal(
+        result.sort_values("ticker").reset_index(drop=True).round(6),
+        expected,
+    )
+
+
+def test_sortino_metric():
+    prices = _sample_price_matrix()
+    result = metrics.METRIC_REGISTRY["sortino"](prices)
+    expected = pd.DataFrame(
+        {
+            "ticker": ["A", "B"],
+            "sortino": [1.925098, -2.113560],
+        }
+    )
+    pd.testing.assert_frame_equal(
+        result.sort_values("ticker").reset_index(drop=True).round(6),
+        expected,
+    )
