@@ -1,5 +1,8 @@
 name: Update Fortune 500 tickers
 
+permissions:
+  contents: write  # allow pushing updated CSV back to repo
+
 on:
   schedule:
     - cron: '0 0 1 * *'
@@ -10,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # needed to push back changes
       - uses: actions/setup-python@v4
         with:
           python-version: '3.x'
@@ -20,6 +25,13 @@ jobs:
       - name: Fetch Fortune 500 tickers
         run: |
           python scripts/scrape_fortune_500_tickers.py
+      - name: Commit updated ticker CSV
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add fortune500_tickers.csv || true
+          git commit -m "chore: update Fortune 500 tickers [skip ci]" || echo "No changes to commit"
+          git push || echo "Nothing pushed"
       - name: Upload ticker list
         uses: actions/upload-artifact@v3
         with:

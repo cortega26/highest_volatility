@@ -3,3 +3,4 @@
 *.html
 __pycache__/
 *.log
+!fortune500_tickers.csv

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 from bs4 import BeautifulSoup
+from highest_volatility.sources.selenium_universe import fetch_us500_fortune_pairs
 
 
 @dataclass
@@ -35,70 +36,26 @@ def normalize_ticker(ticker: str) -> str:
 
 
 def _fetch_with_selenium(source_url: str, top_n: int) -> pd.DataFrame:
-    """Fetch the Fortune list via Selenium Stealth.
+    """Fetch Fortune companies via the robust Selenium grid harvester.
 
-    The web site backing the list renders its table client side.  A headless
-    browser that mimics a real user is therefore required.  ``selenium-stealth``
-    is used to reduce the chance of being blocked.
+    Uses the same implementation as the universe builder to ensure consistency.
     """
 
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from webdriver_manager.chrome import ChromeDriverManager
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium_stealth import stealth
-
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
-    try:
-        stealth(
-            driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Win32",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
-            fix_hairline=True,
-        )
-        driver.get(source_url)
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "table tbody tr"))
-        )
-        html = driver.page_source
-    finally:
-        driver.quit()
-
-    soup = BeautifulSoup(html, "html.parser")
-    rows = soup.select("table tbody tr")
-    records: list[dict] = []
+    # Fetch extra to compensate for entries without tickers
+    pairs = fetch_us500_fortune_pairs(top_n * 2)
     seen: set[str] = set()
-    for row in rows:
-        cols = [c.get_text(strip=True) for c in row.find_all("td")]
-        if len(cols) < 3:
+    recs: list[dict] = []
+    rank = 1
+    for name, ticker in pairs:
+        t = normalize_ticker(ticker)
+        if not t or t in seen:
             continue
-        try:
-            rank = int(cols[0])
-        except ValueError:
-            continue
-        company = cols[1]
-        ticker = normalize_ticker(cols[2])
-        if ticker in seen:
-            continue
-        records.append({"rank": rank, "company": company, "ticker": ticker})
-        seen.add(ticker)
-        if len(records) >= top_n:
+        recs.append({"rank": rank, "company": name, "ticker": t})
+        seen.add(t)
+        rank += 1
+        if len(recs) >= top_n:
             break
-
-    df = pd.DataFrame(records)
-    if not df.empty:
-        df = df.sort_values("rank").reset_index(drop=True)
+    df = pd.DataFrame(recs)
     return df
 
 

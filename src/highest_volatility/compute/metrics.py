@@ -256,6 +256,13 @@ def additional_volatility_measures(
     ln2 = np.log(2.0)
     results: List[Dict[str, float]] = []
 
+    # Standardize columns layout to level0=field, level1=ticker if MultiIndex
+    if isinstance(raw.columns, pd.MultiIndex):
+        lv0 = set(raw.columns.get_level_values(0))
+        lv1 = set(raw.columns.get_level_values(1))
+        if ("Open" not in lv0 and "Close" not in lv0) and ("Open" in lv1 or "Close" in lv1):
+            raw = raw.swaplevel(0, 1, axis=1).sort_index(axis=1)
+
     def _get_series(field: str, ticker: str) -> pd.Series | None:
         try:
             if isinstance(raw.columns, pd.MultiIndex):
@@ -274,20 +281,22 @@ def additional_volatility_measures(
         s_high = _get_series("High", t)
         s_low = _get_series("Low", t)
 
-        frames = {
-            k: v
-            for k, v in {
-                "close": s_close,
-                "open": s_open,
-                "high": s_high,
-                "low": s_low,
-            }.items()
-            if v is not None
-        }
+        # Keep only valid Series; skip scalars or empty series
+        candidates: Dict[str, pd.Series] = {}
+        for key, series in {
+            "close": s_close,
+            "open": s_open,
+            "high": s_high,
+            "low": s_low,
+        }.items():
+            if isinstance(series, pd.Series) and not series.dropna().empty:
+                candidates[key] = series.dropna()
+        frames = candidates
         if not frames or "close" not in frames:
             continue
 
-        df = pd.DataFrame(frames).dropna()
+        # Build aligned DataFrame from series
+        df = pd.concat(frames, axis=1).dropna(how="any")
         if df.shape[0] < min_periods:
             continue
 
