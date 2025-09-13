@@ -102,3 +102,33 @@ def test_cli_async_flag(monkeypatch):
     ])
     assert called.get("matrix_mode") == "async"
 
+
+def test_cli_passes_max_retries(monkeypatch):
+    prices, fortune = _mock_data()
+    called = {}
+
+    def _mock_download(*args, **kwargs):
+        called["max_retries"] = kwargs.get("max_retries")
+        return prices
+
+    monkeypatch.setattr(
+        cli,
+        "build_universe",
+        lambda top_n, **__: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
+    )
+    monkeypatch.setattr(cli, "download_price_history", _mock_download)
+
+    cli.main([
+        "--metric",
+        "sharpe_ratio",
+        "--top-n",
+        "2",
+        "--print-top",
+        "2",
+        "--min-days",
+        "2",
+        "--max-retries",
+        "7",
+    ])
+    assert called.get("max_retries") == 7
+

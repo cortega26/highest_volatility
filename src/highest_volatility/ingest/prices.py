@@ -10,9 +10,11 @@ from contextlib import contextmanager
 import os
 import logging
 import asyncio
+import time
 
 import pandas as pd
 import yfinance as yf
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 try:  # pragma: no cover - optional dependency
     from datasource.yahoo_async import YahooAsyncDataSource  # type: ignore
@@ -37,6 +39,8 @@ def download_price_history(
     force_refresh: bool = False,
     max_workers: int = 8,
     matrix_mode: str = "batch",
+    chunk_sleep: float = 0.0,
+    max_retries: int = 3,
 ) -> pd.DataFrame:
     """Download price history for ``tickers`` (with optional caching).
 
@@ -50,6 +54,10 @@ def download_price_history(
         Data interval supported by Yahoo Finance (e.g. ``1d``, ``60m``, ``15m``).
     prepost:
         Include pre/post market data for intraday intervals.
+    chunk_sleep:
+        Optional pause in seconds between chunk downloads.
+    max_retries:
+        Maximum retry attempts for failed downloads.
 
     Returns
     -------
@@ -60,6 +68,15 @@ def download_price_history(
     end_dt = datetime.utcnow()
     start_dt = end_dt - timedelta(days=lookback_days * 2)
 
+    def _download(*args, **kwargs):
+        with _silence_yfinance():
+            return yf.download(*args, **kwargs)
+
+    download_with_retry = retry(
+        stop=stop_after_attempt(max_retries),
+        wait=wait_exponential(multiplier=1, min=1),
+    )(_download)
+
     # Fallback path: plain batch download
     def _batch_download() -> pd.DataFrame:
         # Download in chunks to reduce failures and then stitch per-ticker frames
@@ -69,36 +86,36 @@ def download_price_history(
 
         chunks = [tickers[i : i + CHUNK] for i in range(0, len(tickers), CHUNK)]
         for chunk in chunks:
-            with _silence_yfinance():
-                df = yf.download(
-                    " ".join(chunk),
-                    start=start_dt,
-                    end=end_dt,
-                    interval=interval,
-                    progress=False,
-                    auto_adjust=True,
-                    prepost=prepost,
-                    group_by="column",
-                )
+            df = download_with_retry(
+                " ".join(chunk),
+                start=start_dt,
+                end=end_dt,
+                interval=interval,
+                progress=False,
+                auto_adjust=True,
+                prepost=prepost,
+                group_by="column",
+            )
             if df is None or df.empty:
                 # Fallback to single ticker
                 for t in chunk:
-                    with _silence_yfinance():
-                        d1 = yf.download(
-                            t,
-                            start=start_dt,
-                            end=end_dt,
-                            interval=interval,
-                            progress=False,
-                            auto_adjust=True,
-                            prepost=prepost,
-                        )
+                    d1 = download_with_retry(
+                        t,
+                        start=start_dt,
+                        end=end_dt,
+                        interval=interval,
+                        progress=False,
+                        auto_adjust=True,
+                        prepost=prepost,
+                    )
                     if d1 is None or d1.empty:
                         failed.append(t)
                         continue
                     if isinstance(d1.columns, pd.MultiIndex):
                         d1 = d1.droplevel(1, axis=1)
                     success[t] = d1.sort_index()
+                if chunk_sleep:
+                    time.sleep(chunk_sleep)
                 continue
 
             # Split multi-ticker frame into per-ticker DataFrames
@@ -120,6 +137,9 @@ def download_price_history(
                     success[t] = sub.sort_index()
                 else:
                     failed.append(t)
+
+            if chunk_sleep:
+                time.sleep(chunk_sleep)
 
         if not success:
             return pd.DataFrame()
@@ -210,16 +230,15 @@ def download_price_history(
             if fetch_start > end_date:
                 # Already up to date
                 return cached_df
-        with _silence_yfinance():
-            df_new = yf.download(
-                t,
-                start=fetch_start,
-                end=end_date + timedelta(days=1),
-                interval=interval,
-                auto_adjust=False,
-                progress=False,
-                prepost=prepost,
-            )
+        df_new = download_with_retry(
+            t,
+            start=fetch_start,
+            end=end_date + timedelta(days=1),
+            interval=interval,
+            auto_adjust=False,
+            progress=False,
+            prepost=prepost,
+        )
         if isinstance(df_new.columns, pd.MultiIndex):
             df_new.columns = df_new.columns.droplevel(1)
         if not isinstance(df_new.index, pd.DatetimeIndex):
@@ -277,16 +296,15 @@ def download_price_history(
             if suspects:
                 # Force refresh suspects in parallel, ignore cache
                 def _force_refresh_one(t: str) -> Optional[pd.DataFrame]:
-                    with _silence_yfinance():
-                        df_new = yf.download(
-                            t,
-                            start=start_date,
-                            end=end_date + timedelta(days=1),
-                            interval=interval,
-                            auto_adjust=False,
-                            progress=False,
-                            prepost=prepost,
-                        )
+                    df_new = download_with_retry(
+                        t,
+                        start=start_date,
+                        end=end_date + timedelta(days=1),
+                        interval=interval,
+                        auto_adjust=False,
+                        progress=False,
+                        prepost=prepost,
+                    )
                     if isinstance(df_new.columns, pd.MultiIndex):
                         df_new.columns = df_new.columns.droplevel(1)
                     if not isinstance(df_new.index, pd.DatetimeIndex):
