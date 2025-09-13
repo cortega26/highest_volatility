@@ -22,6 +22,11 @@ selected with the ``--metric`` option:
 
 ## Cache Refresh
 
+A background task runs when the API starts, periodically refreshing cached
+price data for any locally stored tickers. The interval between refreshes is
+configured with the ``HV_CACHE_REFRESH_INTERVAL`` environment variable and
+defaults to once every 24 hours.
+
 A helper script is provided to refresh cached price data for all locally stored
 tickers.  It iterates over the tickers under `.cache/prices/<interval>` and
 updates each one sequentially.

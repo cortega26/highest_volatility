@@ -12,6 +12,7 @@ can override default configuration values.
 from __future__ import annotations
 
 import json
+import asyncio
 
 import redis.asyncio as redis
 from fastapi import Depends, FastAPI, HTTPException
@@ -32,6 +33,7 @@ from highest_volatility.app.cli import (
 from highest_volatility.compute.metrics import METRIC_REGISTRY
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.universe import build_universe
+from highest_volatility.pipeline.cache_refresh import schedule_cache_refresh
 
 
 class Settings(BaseSettings):
@@ -52,6 +54,7 @@ class Settings(BaseSettings):
     cache_ttl_prices: int = 60
     cache_ttl_metrics: int = 60
     rate_limit: str = "60/minute"
+    cache_refresh_interval: float = 60 * 60 * 24
 
     class Config:
         env_prefix = "HV_"
@@ -78,6 +81,24 @@ async def on_startup() -> None:
     """Initialize cache backend."""
     client = redis.from_url(settings.redis_url, encoding="utf8", decode_responses=True)
     FastAPICache.init(RedisBackend(client), prefix="hv-cache")
+    app.state.cache_refresh_task = asyncio.create_task(
+        schedule_cache_refresh(
+            interval=settings.interval,
+            lookback_days=settings.lookback_days,
+            delay=settings.cache_refresh_interval,
+        )
+    )
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    task = getattr(app.state, "cache_refresh_task", None)
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 @app.get("/universe")
