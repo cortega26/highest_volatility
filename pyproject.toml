@@ -14,6 +14,9 @@ dependencies = [
     "aiohttp",
     "fastapi",
     "uvicorn",
+    "fastapi-cache2",
+    "slowapi",
+    "redis",
 ]
 
 [project.optional-dependencies]

@@ -14,3 +14,6 @@ aiohttp
 tenacity
 fastapi
 uvicorn
+fastapi-cache2
+slowapi
+redis
