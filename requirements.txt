@@ -10,3 +10,4 @@ webdriver-manager
 selenium-stealth
 pyarrow
 pytest
+aiohttp

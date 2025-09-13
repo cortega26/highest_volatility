@@ -8,11 +8,13 @@ from datetime import date
 
 import pandas as pd
 
+import asyncio
 from cache.store import load_cached
 from config.interval_policy import full_backfill_start
 from datasource.yahoo import YahooDataSource
-from ingest.fetch_parallel import fetch_many
-from ingest.fetch_prices import PriceFetcher
+from datasource.yahoo_async import YahooAsyncDataSource
+from ingest.fetch_async import fetch_many_async
+from ingest.async_fetch_prices import AsyncPriceFetcher
 
 
 def _compare_frames(a: pd.DataFrame, b: pd.DataFrame) -> bool:
@@ -44,11 +46,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    datasource = YahooDataSource()
+    datasource = YahooAsyncDataSource()
     source_name = "yahoo"
 
-    fetcher = PriceFetcher(datasource, source_name=source_name, throttle=args.throttle)
-    fetch_many(fetcher, args.tickers, args.interval, force_refresh=args.force_refresh, max_workers=args.workers)
+    fetcher = AsyncPriceFetcher(datasource, source_name=source_name, throttle=args.throttle)
+    asyncio.run(
+        fetch_many_async(
+            fetcher,
+            args.tickers,
+            args.interval,
+            force_refresh=args.force_refresh,
+            max_concurrency=args.workers,
+        )
+    )
 
     if args.integrity != "none":
         to_check = list(args.tickers)
@@ -60,7 +70,9 @@ def main(argv: list[str] | None = None) -> int:
             if cached_df is None:
                 mismatches.append(t)
                 continue
-            fresh_df = datasource.get_prices(t, full_backfill_start(args.interval), date.today(), args.interval)
+            # Use synchronous datasource for integrity checks to keep implementation simple
+            sync_ds = YahooDataSource()
+            fresh_df = sync_ds.get_prices(t, full_backfill_start(args.interval), date.today(), args.interval)
             if not _compare_frames(cached_df, fresh_df):
                 mismatches.append(t)
         if mismatches:
