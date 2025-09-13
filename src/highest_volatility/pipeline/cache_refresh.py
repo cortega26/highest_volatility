@@ -1,0 +1,65 @@
+"""Async helpers for refreshing cached price data."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import List
+
+from cache.store import CACHE_ROOT
+from highest_volatility.ingest.prices import download_price_history
+
+
+def _cached_tickers(interval: str = "1d") -> List[str]:
+    """Return tickers available in the local cache for ``interval``.
+
+    Parameters
+    ----------
+    interval:
+        Price interval directory under ``.cache/prices``.
+    """
+
+    interval_dir = CACHE_ROOT / interval
+    if not interval_dir.exists():
+        return []
+    return [p.stem for p in interval_dir.glob("*.parquet")]
+
+
+async def refresh_cached_prices(*, interval: str = "1d", lookback_days: int = 365) -> None:
+    """Refresh cached prices for all stored tickers.
+
+    Each ticker is downloaded sequentially using ``asyncio.to_thread`` to avoid
+    blocking the event loop.
+    """
+
+    tickers = _cached_tickers(interval)
+    for ticker in tickers:
+        await asyncio.to_thread(
+            download_price_history,
+            [ticker],
+            lookback_days,
+            interval=interval,
+            force_refresh=False,
+        )
+
+
+async def schedule_cache_refresh(
+    *,
+    interval: str = "1d",
+    lookback_days: int = 365,
+    delay: float = 60 * 60 * 24,
+) -> None:
+    """Run :func:`refresh_cached_prices` periodically.
+
+    Parameters
+    ----------
+    interval:
+        Cache interval to refresh.
+    lookback_days:
+        Number of days of history to fetch.
+    delay:
+        Seconds to wait between refresh runs. Defaults to 1 day.
+    """
+
+    while True:
+        await refresh_cached_prices(interval=interval, lookback_days=lookback_days)
+        await asyncio.sleep(delay)
