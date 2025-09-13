@@ -12,6 +12,8 @@ dependencies = [
     "joblib",
     "python-dateutil",
     "aiohttp",
+    "fastapi",
+    "uvicorn",
 ]
 
 [project.optional-dependencies]
