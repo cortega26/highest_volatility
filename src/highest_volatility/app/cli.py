@@ -66,7 +66,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--metric",
         choices=METRIC_CHOICES,
         default="cc_vol",
-        help="Metric to rank by",
+        help=(
+            "Metric to rank by (e.g. cc_vol, sharpe_ratio, max_drawdown, "
+            "var, sortino)"
+        ),
     )
     parser.add_argument(
         "--prepost",

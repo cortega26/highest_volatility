@@ -221,6 +221,71 @@ def sharpe_ratio(prices: pd.DataFrame, *, risk_free: float = 0.0) -> pd.DataFram
     return sharpe.rename("sharpe_ratio").rename_axis("ticker").reset_index()
 
 
+def value_at_risk(prices: pd.DataFrame, *, confidence: float = 0.05) -> pd.DataFrame:
+    """Compute the value at risk (VaR) for each ticker.
+
+    Parameters
+    ----------
+    prices:
+        Adjusted close prices.
+    confidence:
+        Left-tail probability used to compute the quantile.  For example,
+        ``0.05`` corresponds to the 5% VaR.
+
+    Returns
+    -------
+    DataFrame
+        Columns ``ticker`` and ``var`` with VaR expressed as a fraction of
+        the price (e.g. ``-0.03`` for a 3% loss).
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> prices = pd.DataFrame({'A': [100, 110, 105, 102, 100]},
+    ...                       index=pd.date_range('2020-01-01', periods=5))
+    >>> value_at_risk(prices).round(2).to_dict()
+    {'ticker': {0: 'A'}, 'var': {0: -0.04}}
+    """
+
+    returns = prices.pct_change(fill_method=None).dropna()
+    var = returns.quantile(confidence)
+    return var.rename("var").rename_axis("ticker").reset_index()
+
+
+def sortino_ratio(prices: pd.DataFrame, *, risk_free: float = 0.0) -> pd.DataFrame:
+    """Compute the annualized Sortino ratio for each ticker.
+
+    Parameters
+    ----------
+    prices:
+        Adjusted close prices.
+    risk_free:
+        Annual risk-free rate expressed as a decimal (e.g. ``0.02`` for
+        2%).
+
+    Returns
+    -------
+    DataFrame
+        Columns ``ticker`` and ``sortino``.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> prices = pd.DataFrame({'A': [100, 110, 105, 102, 100]},
+    ...                       index=pd.date_range('2020-01-01', periods=5))
+    >>> sortino_ratio(prices).round(2).to_dict()
+    {'ticker': {0: 'A'}, 'sortino': {0: 1.93}}
+    """
+
+    returns = prices.pct_change(fill_method=None).dropna()
+    excess = returns - risk_free / TRADING_DAYS_PER_YEAR
+    downside = excess[excess < 0]
+    downside_std = downside.std()
+    mean_excess = excess.mean()
+    sortino = mean_excess / downside_std * np.sqrt(TRADING_DAYS_PER_YEAR)
+    return sortino.rename("sortino").rename_axis("ticker").reset_index()
+
+
 def additional_volatility_measures(
     raw: pd.DataFrame,
     tickers: List[str],
@@ -421,6 +486,16 @@ def _max_drawdown_metric(prices: pd.DataFrame, **_: object) -> pd.DataFrame:
     return max_drawdown(close)
 
 
+def _var_metric(prices: pd.DataFrame, **_: object) -> pd.DataFrame:
+    close = _extract_close(prices)
+    return value_at_risk(close)
+
+
+def _sortino_metric(prices: pd.DataFrame, **_: object) -> pd.DataFrame:
+    close = _extract_close(prices)
+    return sortino_ratio(close)
+
+
 def _extra_metric(name: str) -> Callable[..., pd.DataFrame]:
     def wrapper(
         prices: pd.DataFrame,
@@ -449,6 +524,8 @@ for _name in ["parkinson_vol", "gk_vol", "rs_vol", "yz_vol", "ewma_vol", "mad_vo
     register_metric(_name, _extra_metric(_name))
 register_metric("sharpe_ratio", _sharpe_ratio_metric)
 register_metric("max_drawdown", _max_drawdown_metric)
+register_metric("var", _var_metric)
+register_metric("sortino", _sortino_metric)
 
 
 def load_plugins() -> None:
@@ -506,6 +583,8 @@ __all__ = [
     "max_drawdown",
     "rolling_volatility",
     "sharpe_ratio",
+    "value_at_risk",
+    "sortino_ratio",
     "METRIC_REGISTRY",
     "register_metric",
     "load_plugins",
