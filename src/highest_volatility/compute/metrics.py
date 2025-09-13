@@ -10,7 +10,8 @@ consistent manner.
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List
+from pathlib import Path
+from typing import Callable, Dict, List
 
 TRADING_DAYS_PER_YEAR = 252
 TRADING_MINUTES_PER_DAY = 390
@@ -371,6 +372,130 @@ def additional_volatility_measures(
     return out[cols]
 
 
+# ---------------------------------------------------------------------------
+# Metric registry and plugin loading
+# ---------------------------------------------------------------------------
+
+# Registry mapping metric names to callables.  Each callable should accept a
+# price matrix and return a tidy DataFrame containing a ``ticker`` column and a
+# column named after the metric.
+METRIC_REGISTRY: Dict[str, Callable[..., pd.DataFrame]] = {}
+
+
+def register_metric(name: str, func: Callable[..., pd.DataFrame]) -> None:
+    """Register ``func`` under ``name`` in the metric registry."""
+
+    METRIC_REGISTRY[name] = func
+
+
+def _extract_close(prices: pd.DataFrame) -> pd.DataFrame:
+    """Return a DataFrame of close prices from a Yahoo-style price matrix."""
+
+    if isinstance(prices.columns, pd.MultiIndex):
+        if "Adj Close" in prices.columns.get_level_values(0):
+            return prices["Adj Close"]
+        return prices["Close"]
+    return prices["Adj Close"] if "Adj Close" in prices.columns else prices["Close"]
+
+
+def _cc_vol(
+    prices: pd.DataFrame,
+    *,
+    min_periods: int | None = None,
+    interval: str = "1d",
+    **_: object,
+) -> pd.DataFrame:
+    close = _extract_close(prices)
+    return annualized_volatility(close, min_periods=min_periods, interval=interval).rename(
+        columns={"annualized_volatility": "cc_vol"}
+    )
+
+
+def _sharpe_ratio_metric(prices: pd.DataFrame, **_: object) -> pd.DataFrame:
+    close = _extract_close(prices)
+    return sharpe_ratio(close)
+
+
+def _max_drawdown_metric(prices: pd.DataFrame, **_: object) -> pd.DataFrame:
+    close = _extract_close(prices)
+    return max_drawdown(close)
+
+
+def _extra_metric(name: str) -> Callable[..., pd.DataFrame]:
+    def wrapper(
+        prices: pd.DataFrame,
+        tickers: List[str] | None = None,
+        *,
+        min_periods: int | None = None,
+        interval: str = "1d",
+        **_: object,
+    ) -> pd.DataFrame:
+        df = additional_volatility_measures(
+            prices,
+            tickers or [],
+            min_periods=min_periods or 0,
+            interval=interval,
+        )
+        if name in df.columns:
+            return df[["ticker", name]]
+        return pd.DataFrame(columns=["ticker", name])
+
+    return wrapper
+
+
+# Register built-in metrics
+register_metric("cc_vol", _cc_vol)
+for _name in ["parkinson_vol", "gk_vol", "rs_vol", "yz_vol", "ewma_vol", "mad_vol"]:
+    register_metric(_name, _extra_metric(_name))
+register_metric("sharpe_ratio", _sharpe_ratio_metric)
+register_metric("max_drawdown", _max_drawdown_metric)
+
+
+def load_plugins() -> None:
+    """Load metric plugins via entry points or a local ``metrics/`` directory."""
+
+    # Entry points
+    try:  # pragma: no cover - Python version differences
+        from importlib.metadata import entry_points
+    except Exception:  # pragma: no cover - fallback for very old Python
+        entry_points = None  # type: ignore
+
+    if entry_points is not None:  # pragma: no branch
+        try:
+            eps = entry_points(group="highest_volatility.metrics")
+        except TypeError:  # pragma: no cover - Python <3.10
+            eps = entry_points().get("highest_volatility.metrics", [])
+        for ep in eps:
+            try:
+                func = ep.load()
+            except Exception:  # pragma: no cover - plugin errors shouldn't crash
+                continue
+            register_metric(ep.name, func)
+
+    # ``metrics`` directory relative to current working directory
+    plugin_dir = Path.cwd() / "metrics"
+    if plugin_dir.is_dir():
+        for path in plugin_dir.glob("*.py"):
+            if path.name.startswith("_"):
+                continue
+            try:
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location(path.stem, path)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    if hasattr(module, "METRICS"):
+                        for name, func in getattr(module, "METRICS").items():
+                            register_metric(name, func)
+            except Exception:  # pragma: no cover - best effort
+                continue
+
+
+# Load plugins on import (best effort)
+load_plugins()
+
+
 __all__ = [
     "TRADING_DAYS_PER_YEAR",
     "TRADING_MINUTES_PER_DAY",
@@ -381,4 +506,7 @@ __all__ = [
     "max_drawdown",
     "rolling_volatility",
     "sharpe_ratio",
+    "METRIC_REGISTRY",
+    "register_metric",
+    "load_plugins",
 ]

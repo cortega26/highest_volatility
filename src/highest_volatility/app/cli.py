@@ -9,12 +9,7 @@ import time
 
 import pandas as pd
 
-from highest_volatility.compute.metrics import (
-    additional_volatility_measures,
-    annualized_volatility,
-    max_drawdown,
-    sharpe_ratio,
-)
+from highest_volatility.compute.metrics import METRIC_REGISTRY, load_plugins
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.universe import build_universe
 from highest_volatility.storage.csv_store import save_csv
@@ -26,17 +21,9 @@ DEFAULT_TOP_N = 100
 DEFAULT_PRINT_TOP = 5
 DEFAULT_MIN_DAYS = 126
 INTERVAL_CHOICES = ["1d", "60m", "30m", "15m", "5m", "1m"]
-METRIC_CHOICES = [
-    "cc_vol",
-    "parkinson_vol",
-    "gk_vol",
-    "rs_vol",
-    "yz_vol",
-    "ewma_vol",
-    "mad_vol",
-    "sharpe_ratio",
-    "max_drawdown",
-]
+# Load any third-party metric plugins before building choices
+load_plugins()
+METRIC_CHOICES = sorted(METRIC_REGISTRY.keys())
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -237,36 +224,21 @@ def main(argv: Optional[List[str]] = None) -> None:
     tickers = [t for t in tickers if t in close.columns]
     print("[3/4] Computing metrics…", flush=True)
     t0 = time.perf_counter()
-    vols_cc = annualized_volatility(
-        close, min_periods=args.min_days, interval=args.interval
-    ).rename(columns={"annualized_volatility": "cc_vol"})
-    # Ensure unique rows per ticker before merging
-    vols_cc = vols_cc.drop_duplicates(subset=["ticker"], keep="first")
-
-    extras = additional_volatility_measures(
-        prices, tickers, min_periods=args.min_days, interval=args.interval
+    metric_func = METRIC_REGISTRY[args.metric]
+    metric_df = metric_func(
+        prices,
+        tickers=tickers,
+        close=close,
+        min_periods=args.min_days,
+        interval=args.interval,
     )
-    if not extras.empty:
-        extras = extras.drop_duplicates(subset=["ticker"], keep="first")
-    sharpe = sharpe_ratio(close)
-    sharpe = sharpe.drop_duplicates(subset=["ticker"], keep="first")
-    drawdown = max_drawdown(close)
-    drawdown = drawdown.drop_duplicates(subset=["ticker"], keep="first")
-    vols = (
-        vols_cc.merge(extras, on="ticker", how="left")
-        .merge(sharpe, on="ticker", how="left")
-        .merge(drawdown, on="ticker", how="left")
-    )
-    # Build the final table by aligning metrics (authoritative) to Fortune mapping
+    metric_df = metric_df.drop_duplicates(subset=["ticker"], keep="first")
     fortune = fortune.drop_duplicates(subset=["ticker"], keep="first")
-    metrics = vols.drop_duplicates(subset=["ticker"], keep="first").set_index("ticker")
-    # Keep only rows with the requested metric present, then rank
+    metrics = metric_df.set_index("ticker")
     metrics = metrics.dropna(subset=[args.metric]).sort_values(args.metric, ascending=False)
-    # Attach company/rank by ticker (no reordering issues)
     result = metrics.join(fortune.set_index("ticker")["company"]).join(
         fortune.set_index("ticker")["rank"]
     )
-    # Ensure 1 row per ticker
     result = result[~result.index.duplicated(keep="first")]
     timings["compute_metrics"] = time.perf_counter() - t0
 
