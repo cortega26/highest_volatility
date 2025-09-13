@@ -131,6 +131,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=8,
         help="Max parallel workers for price fetching",
     )
+    parser.add_argument(
+        "--async-fetch",
+        action="store_true",
+        help="Fetch prices asynchronously via HTTP API",
+    )
     return parser.parse_args(argv)
 
 
@@ -166,7 +171,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         use_cache=args.use_cache,
         force_refresh=args.force_refresh_prices,
         max_workers=args.price_fetch_workers,
-        matrix_mode="batch",
+        matrix_mode="async" if args.async_fetch else "batch",
     )
     timings["download_prices"] = time.perf_counter() - t0
     if isinstance(prices.columns, pd.MultiIndex):

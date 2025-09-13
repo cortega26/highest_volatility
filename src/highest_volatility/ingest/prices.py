@@ -9,9 +9,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import os
 import logging
+import asyncio
 
 import pandas as pd
 import yfinance as yf
+
+try:  # pragma: no cover - optional dependency
+    from datasource.yahoo_async import YahooAsyncDataSource  # type: ignore
+except Exception:  # pragma: no cover - optional
+    YahooAsyncDataSource = None  # type: ignore
 
 # Optional caching stack (present in this repo under src/cache and src/ingest)
 try:  # pragma: no cover - optional import path
@@ -124,9 +130,40 @@ def download_price_history(
         combined = combined.loc[combined.index >= pd.to_datetime(start_dt)]
         return combined.dropna(how="all")
 
+    async def _async_download() -> pd.DataFrame:
+        if YahooAsyncDataSource is None:  # pragma: no cover - import guard
+            raise RuntimeError("Async data source unavailable")
+        datasource = YahooAsyncDataSource()
+        end_date = date.today()
+        start_date = end_date - timedelta(days=lookback_days * 2)
+        sem = asyncio.Semaphore(max_workers)
+
+        async def _one(ticker: str) -> tuple[str, pd.DataFrame]:
+            async with sem:
+                df = await datasource.get_prices(ticker, start_date, end_date, interval)
+                return ticker, df
+
+        tasks = [asyncio.create_task(_one(t)) for t in tickers]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        frames: Dict[str, pd.DataFrame] = {}
+        for res in results:
+            if isinstance(res, Exception):
+                continue
+            t, df = res
+            if df is not None and not df.empty:
+                frames[t] = df.sort_index()
+        if not frames:
+            return pd.DataFrame()
+        combined = pd.concat(frames, axis=1)
+        combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
+        combined = combined.loc[combined.index >= pd.to_datetime(start_dt)]
+        return combined.dropna(how="all")
+
     # Prefer batch mode for matrix correctness unless explicitly overridden
     if matrix_mode == "batch":
         return _batch_download()
+    if matrix_mode == "async":
+        return asyncio.run(_async_download())
 
     # Use cache if available; otherwise fall back to batch download
     if not use_cache or load_cached is None or save_cache is None:
