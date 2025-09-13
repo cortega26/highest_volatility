@@ -12,3 +12,5 @@ pyarrow
 pytest
 aiohttp
 tenacity
+fastapi
+uvicorn
