@@ -13,8 +13,16 @@ from __future__ import annotations
 
 import json
 
+import redis.asyncio as redis
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.decorator import cache
 from pydantic import BaseSettings
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
 from highest_volatility.app.cli import (
     DEFAULT_LOOKBACK_DAYS,
@@ -39,19 +47,41 @@ class Settings(BaseSettings):
     top_n: int = DEFAULT_TOP_N
     metric: str = "cc_vol"
     min_days: int = DEFAULT_MIN_DAYS
+    redis_url: str = "redis://localhost:6379/0"
+    cache_ttl_universe: int = 60
+    cache_ttl_prices: int = 60
+    cache_ttl_metrics: int = 60
+    rate_limit: str = "60/minute"
 
     class Config:
         env_prefix = "HV_"
 
 
+settings = Settings()
+
+
 def get_settings() -> Settings:
-    return Settings()
+    return settings
 
 
 app = FastAPI(title="Highest Volatility API")
 
+limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
+app.state.limiter = limiter
+# Per-endpoint limits can be overridden with ``@app.state.limiter.limit("X/minute")``
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    """Initialize cache backend."""
+    client = redis.from_url(settings.redis_url, encoding="utf8", decode_responses=True)
+    FastAPICache.init(RedisBackend(client), prefix="hv-cache")
+
 
 @app.get("/universe")
+@cache(expire=settings.cache_ttl_universe)
 def universe_endpoint(
     top_n: int | None = None,
     settings: Settings = Depends(get_settings),
@@ -64,6 +94,7 @@ def universe_endpoint(
 
 
 @app.get("/prices")
+@cache(expire=settings.cache_ttl_prices)
 def prices_endpoint(
     tickers: str,
     lookback_days: int | None = None,
@@ -84,6 +115,7 @@ def prices_endpoint(
 
 
 @app.get("/metrics")
+@cache(expire=settings.cache_ttl_metrics)
 def metrics_endpoint(
     tickers: str,
     metric: str | None = None,
