@@ -21,6 +21,8 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional
     YahooAsyncDataSource = None  # type: ignore
 
+from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+
 # Optional caching stack (present in this repo under src/cache and src/ingest)
 try:  # pragma: no cover - optional import path
     from cache.store import load_cached, save_cache  # type: ignore
@@ -151,9 +153,8 @@ def download_price_history(
         return combined.dropna(how="all")
 
     async def _async_download() -> pd.DataFrame:
-        if YahooAsyncDataSource is None:  # pragma: no cover - import guard
-            raise RuntimeError("Async data source unavailable")
-        datasource = YahooAsyncDataSource()
+        datasource_cls = YahooAsyncDataSource or YahooHTTPAsyncDataSource
+        datasource = datasource_cls()
         end_date = date.today()
         start_date = end_date - timedelta(days=lookback_days * 2)
         sem = asyncio.Semaphore(max_workers)
