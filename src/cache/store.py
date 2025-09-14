@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import json
 import os
-import subprocess
+from io import BytesIO
 
 import pandas as pd
 import requests
@@ -33,57 +33,25 @@ def _paths(ticker: str, interval: str) -> Tuple[Path, Path]:
     return base / f"{ticker}.parquet", base / f"{ticker}.json"
 
 
-def _hydrate_from_repo(ticker: str, interval: str, parquet_path: Path, manifest_path: Path) -> None:
-    """Attempt to download cached data from the GitHub repository.
+def _hydrate_from_api(ticker: str, interval: str) -> None:
+    """Attempt to download cached data from the public API.
 
-    This is used for local runs to hydrate the on-disk cache before falling
-    back to fresh downloads.  It is a best-effort helper and silently returns
-    if any step fails or if the files are unavailable upstream.
+    The API base URL is taken from the ``HV_API_BASE_URL`` environment
+    variable. If unavailable or any step fails, the function silently returns.
     """
 
+    base_url = os.getenv("HV_API_BASE_URL")
+    if not base_url:
+        return
+    url = f"{base_url.rstrip('/')}/prices/{ticker}?interval={interval}&fmt=parquet"
     try:
-        remote_url = (
-            subprocess.run(
-                ["git", "config", "--get", "remote.origin.url"],
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
-        )
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return
+        df = pd.read_parquet(BytesIO(r.content))
+        save_cache(ticker, interval, df, source="api")
     except Exception:
         return
-
-    if remote_url.endswith(".git"):
-        remote_url = remote_url[:-4]
-    if remote_url.startswith("git@github.com:"):
-        owner_repo = remote_url.split("git@github.com:", 1)[1]
-    elif remote_url.startswith("https://github.com/"):
-        owner_repo = remote_url.split("https://github.com/", 1)[1]
-    else:
-        return
-
-    owner_repo = owner_repo.strip("/")
-    branch = os.getenv("CACHE_REPO_BRANCH", "main")
-    base = (
-        f"https://raw.githubusercontent.com/{owner_repo}/{branch}/.cache/prices/{interval}/{ticker}"
-    )
-
-    targets = [
-        (parquet_path, base + ".parquet", "b"),
-        (manifest_path, base + ".json", "t"),
-    ]
-    for path, url, mode in targets:
-        try:
-            r = requests.get(url, timeout=10)
-            if r.status_code != 200:
-                return
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if mode == "b":
-                path.write_bytes(r.content)
-            else:
-                path.write_text(r.text)
-        except Exception:
-            return
 
 
 def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Optional[Manifest]]:
@@ -92,7 +60,7 @@ def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Opt
     parquet_path, manifest_path = _paths(ticker, interval)
     if not parquet_path.exists() or not manifest_path.exists():
         if os.getenv("GITHUB_ACTIONS") != "true":
-            _hydrate_from_repo(ticker, interval, parquet_path, manifest_path)
+            _hydrate_from_api(ticker, interval)
         if not parquet_path.exists() or not manifest_path.exists():
             return None, None
 
