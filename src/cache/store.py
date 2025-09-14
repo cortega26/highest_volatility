@@ -12,6 +12,7 @@ from io import BytesIO
 
 import pandas as pd
 import requests
+from highest_volatility.pipeline import validate_cache
 
 CACHE_ROOT = Path(".cache/prices")
 
@@ -81,13 +82,6 @@ def save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> Man
         raise ValueError("Cannot cache empty DataFrame")
 
     df = df.sort_index()
-    parquet_path, manifest_path = _paths(ticker, interval)
-    parquet_path.parent.mkdir(parents=True, exist_ok=True)
-
-    tmp_parquet = parquet_path.with_suffix(".parquet.tmp")
-    df.to_parquet(tmp_parquet)
-    tmp_parquet.replace(parquet_path)
-
     manifest = Manifest(
         ticker=ticker,
         interval=interval,
@@ -99,6 +93,15 @@ def save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> Man
         updated_at=
         datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     )
+    validate_cache(df, manifest)
+
+    parquet_path, manifest_path = _paths(ticker, interval)
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp_parquet = parquet_path.with_suffix(".parquet.tmp")
+    df.to_parquet(tmp_parquet)
+    tmp_parquet.replace(parquet_path)
+
     tmp_manifest = manifest_path.with_suffix(".json.tmp")
     tmp_manifest.write_text(json.dumps(asdict(manifest)))
     tmp_manifest.replace(manifest_path)

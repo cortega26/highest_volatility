@@ -1,3 +1,5 @@
 """Background tasks for refreshing cached price data."""
 
-__all__ = []
+from .validation import validate_cache
+
+__all__ = ["validate_cache"]
