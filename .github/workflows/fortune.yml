@@ -1,0 +1,37 @@
+name: Update Fortune 500 tickers
+
+permissions:
+  contents: write  # allow pushing updated CSV to data branch
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Retrieve previous data
+        run: |
+          git fetch origin data || true
+          git show origin/data:fortune500_tickers.csv > fortune500_tickers.csv 2>/dev/null || true
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Fetch Fortune 500 tickers
+        run: python scripts/scrape_fortune_500_tickers.py
+      - name: Commit updated ticker CSV
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: data
+          file_pattern: fortune500_tickers.csv
+          commit_message: "chore: update Fortune 500 tickers [skip ci]"
+          create_branch: true

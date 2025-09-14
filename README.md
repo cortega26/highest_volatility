@@ -64,3 +64,10 @@ using cron, add an entry similar to:
 ```
 
 Adjust the interval and paths as needed.
+
+## Data Sources
+
+A monthly GitHub Action refreshes the Fortune 500 universe. On the first day of
+each month the workflow runs ``scripts/scrape_fortune_500_tickers.py`` and
+commits the resulting ``fortune500_tickers.csv`` to the ``data`` branch. These
+tickers serve as the basis for downstream analyses and API responses.
