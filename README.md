@@ -3,6 +3,25 @@
 Tools for exploring equity price volatility.  The project includes utilities for
 loading and caching price history.
 
+## Data API
+
+A lightweight FastAPI service exposes cached price data and the Fortune ticker
+universe. Build and run it with Docker:
+
+```bash
+docker build -t hv-api .
+docker run -p 8000:8000 hv-api
+```
+
+The service provides two endpoints:
+
+- ``/prices/{ticker}`` – return cached prices for ``ticker``. Use the ``fmt``
+  query parameter to request ``json`` (default) or ``parquet`` bytes.
+- ``/fortune-tickers`` – return the cached Fortune 500 ticker list.
+
+Client utilities such as ``cache.store`` will hydrate missing local cache files
+from this API when the ``HV_API_BASE_URL`` environment variable is set.
+
 ## Metrics
 
 The command line interface exposes a number of built-in metrics that can be
