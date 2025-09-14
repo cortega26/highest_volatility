@@ -10,6 +10,7 @@ webdriver-manager
 selenium-stealth
 pyarrow
 pytest
+pytest-asyncio
 aiohttp
 tenacity
 fastapi
