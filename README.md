@@ -39,6 +39,23 @@ selected with the ``--metric`` option:
 - ``var`` – value at risk (VaR)
 - ``sortino`` – annualised Sortino ratio
 
+## Streamlit App
+
+An interactive dashboard is available via Streamlit. It mirrors the CLI
+defaults, letting you pick the lookback window, interval, metric, and minimum
+observation count directly from the sidebar. Additional toggles allow skipping
+Selenium validation of the Fortune universe and opting into asynchronous price
+fetching.
+
+Launch the UI with:
+
+```bash
+streamlit run src/highest_volatility/app/streamlit_app.py
+```
+
+Results are displayed as a sortable table with warning banners when price data
+is unavailable for the selected configuration.
+
 ## Cache Refresh
 
 A background task runs when the API starts, periodically refreshing cached
