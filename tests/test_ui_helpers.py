@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from highest_volatility.app.ui_helpers import (
+    SanitizedPrices,
     prepare_metric_table,
     sanitize_price_matrix,
 )
@@ -21,16 +22,15 @@ def test_sanitize_price_matrix_filters_short_series(sample_prices: pd.DataFrame)
     prices = sample_prices.copy()
     prices[("Adj Close", "BBB")] = [50, pd.NA, pd.NA, pd.NA, pd.NA, pd.NA]
 
-    filtered, close_only, dropped_short, dropped_duplicate, dropped_empty = (
-        sanitize_price_matrix(prices, min_days=3, tickers=["AAA", "BBB"])
-    )
+    result = sanitize_price_matrix(prices, min_days=3, tickers=["AAA", "BBB"])
 
-    assert list(close_only.columns) == ["AAA"]
-    assert dropped_short == ["BBB"]
-    assert dropped_duplicate == []
-    assert dropped_empty == []
+    assert isinstance(result, SanitizedPrices)
+    assert result.available_tickers == ["AAA"]
+    assert result.dropped_short == ["BBB"]
+    assert result.dropped_duplicate == []
+    assert result.dropped_empty == []
     assert (
-        filtered.columns.get_level_values(1).tolist() == ["AAA"]
+        result.filtered.columns.get_level_values(1).tolist() == ["AAA"]
     ), "Only the surviving ticker should remain"
 
 
@@ -42,18 +42,16 @@ def test_prepare_metric_table_sorts_and_joins(sample_prices: pd.DataFrame) -> No
             "ticker": ["AAA", "BBB"],
         }
     )
-    filtered, close_only, *_ = sanitize_price_matrix(
-        sample_prices, min_days=3, tickers=["AAA", "BBB"]
-    )
+    result = sanitize_price_matrix(sample_prices, min_days=3, tickers=["AAA", "BBB"])
 
     table = prepare_metric_table(
-        filtered,
+        result.filtered,
         metric_key="cc_vol",
         min_days=3,
         interval="1d",
-        tickers=close_only.columns,
+        tickers=result.available_tickers,
         fortune=fortune,
-        close_prices=close_only,
+        close_prices=result.close_only,
     )
 
     assert list(table.columns) == ["ticker", "rank", "company", "cc_vol"]
@@ -84,3 +82,20 @@ def test_prepare_metric_table_unknown_metric(sample_prices: pd.DataFrame) -> Non
             tickers=["AAA"],
             fortune=None,
         )
+
+
+def test_sanitized_prices_summarize_drops() -> None:
+    frame = pd.DataFrame({"Adj Close": [1, 2, 3]})
+    result = SanitizedPrices(
+        filtered=frame,
+        close_only=frame,
+        dropped_short=["AAA", "BBB"],
+        dropped_duplicate=["CCC"],
+        dropped_empty=["DDD", "EEE"],
+    )
+
+    messages = result.summarize_drops(min_days=15)
+
+    assert messages[0] == "2 tickers lacked the required 15 observations."
+    assert "duplicate price series" in messages[1]
+    assert messages[-1].startswith("2 tickers contained")
