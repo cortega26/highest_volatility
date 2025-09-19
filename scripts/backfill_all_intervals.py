@@ -39,7 +39,7 @@ def _discover_tickers() -> List[str]:
     """Discover tickers from existing cache CSVs/Parquet as a fallback."""
 
     _ensure_src_on_path()
-    from cache.store import CACHE_ROOT  # Local import to avoid lint errors
+    from src.cache.store import CACHE_ROOT  # Local import to avoid lint errors
 
     root = CACHE_ROOT
     out: set[str] = set()
@@ -57,9 +57,9 @@ def _discover_tickers() -> List[str]:
 
 async def _backfill_interval(tickers: List[str], interval: str, *, concurrency: int, throttle: float) -> None:
     _ensure_src_on_path()
-    from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
-    from ingest.async_fetch_prices import AsyncPriceFetcher
-    from ingest.fetch_async import fetch_many_async
+    from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+    from src.ingest.async_fetch_prices import AsyncPriceFetcher
+    from src.ingest.fetch_async import fetch_many_async
 
     ds = YahooHTTPAsyncDataSource()
     fetcher = AsyncPriceFetcher(ds, source_name="yahoo-http", throttle=throttle)

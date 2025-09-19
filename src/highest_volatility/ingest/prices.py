@@ -16,16 +16,16 @@ import yfinance as yf
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 try:  # pragma: no cover - optional dependency
-    from datasource.yahoo_async import YahooAsyncDataSource  # type: ignore
+    from src.datasource.yahoo_async import YahooAsyncDataSource  # type: ignore
 except Exception:  # pragma: no cover - optional
     YahooAsyncDataSource = None  # type: ignore
 
-from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
 
 # Optional caching stack (present in this repo under src/cache and src/ingest)
 try:  # pragma: no cover - optional import path
-    from cache.store import load_cached, save_cache  # type: ignore
-    from cache.merge import merge_incremental  # type: ignore
+    from src.cache.store import load_cached, save_cache  # type: ignore
+    from src.cache.merge import merge_incremental  # type: ignore
 except Exception:  # pragma: no cover - optional
     load_cached = save_cache = merge_incremental = None  # type: ignore
 

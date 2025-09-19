@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import Scope
 
-from cache.store import load_cached
+from src.cache.store import load_cached
 from highest_volatility.errors import CacheError, ErrorCode, HVError, wrap_error
 from highest_volatility.logging import get_logger, log_exception
 from highest_volatility.storage.ticker_cache import load_cached_fortune

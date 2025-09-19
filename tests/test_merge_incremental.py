@@ -1,6 +1,6 @@
 import pandas as pd
 
-from cache.merge import merge_incremental
+from src.cache.merge import merge_incremental
 
 
 def test_merge_dedup_and_sort():

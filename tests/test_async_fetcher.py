@@ -6,7 +6,7 @@ import aiohttp
 import pandas as pd
 import pytest
 
-from cache import store
+from src.cache import store
 from ingest.async_fetch_prices import AsyncPriceFetcher
 from ingest.fetch_async import fetch_many_async
 from datasource.base_async import AsyncDataSource

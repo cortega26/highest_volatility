@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import List
 
-from cache.store import CACHE_ROOT
+from src.cache.store import CACHE_ROOT
 from highest_volatility.ingest.prices import download_price_history
 
 

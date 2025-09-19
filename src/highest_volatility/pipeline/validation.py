@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 if TYPE_CHECKING:  # pragma: no cover - imported for type hints only
-    from cache.store import Manifest
+    from src.cache.store import Manifest
 
 FREQ_MAP = {
     "1m": "1min",
