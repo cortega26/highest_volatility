@@ -34,6 +34,56 @@ _SENSITIVE_KEYS = {
 _REDACTED = "***REDACTED***"
 
 
+def _safe_str(value: Any) -> str:
+    """Return a defensive string representation for diagnostics."""
+
+    try:
+        text = str(value)
+    except Exception:  # pragma: no cover - extremely defensive
+        text = repr(value)
+    return text
+
+
+def describe_exception(exc: Exception, *, max_depth: int = 3) -> dict[str, Any]:
+    """Return a serialisable description of ``exc`` and its causes."""
+
+    seen: set[int] = set()
+
+    def _describe(err: Exception, depth: int) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "type": type(err).__name__,
+            "message": _safe_str(err),
+        }
+        if hasattr(err, "errno") and getattr(err, "errno") is not None:
+            payload["errno"] = getattr(err, "errno")
+        os_error = getattr(err, "os_error", None)
+        if os_error is not None:
+            payload["os_error"] = {
+                "type": type(os_error).__name__,
+                "message": _safe_str(os_error),
+            }
+            errno = getattr(os_error, "errno", None)
+            if errno is not None:
+                payload["os_error"]["errno"] = errno
+
+        identity = id(err)
+        if identity in seen:
+            payload["cycle"] = True
+            return payload
+        seen.add(identity)
+
+        if depth >= max_depth:
+            return payload
+
+        if err.__cause__ is not None:
+            payload["cause"] = _describe(err.__cause__, depth + 1)
+        elif err.__context__ is not None and not err.__suppress_context__:
+            payload["context"] = _describe(err.__context__, depth + 1)
+        return payload
+
+    return _describe(exc, 0)
+
+
 def _coerce(value: Any) -> Any:
     """Return a JSON-serialisable representation for ``value``."""
 
@@ -110,7 +160,7 @@ class HVError(Exception):
         if self.context:
             payload["context"] = sanitize_context(self.context)
         if self.cause is not None:
-            payload["cause"] = type(self.cause).__name__
+            payload["cause"] = describe_exception(self.cause)
         return payload
 
 
@@ -201,6 +251,7 @@ __all__ = [
     "CacheError",
     "ComputeError",
     "ConfigurationError",
+    "describe_exception",
     "DataSourceError",
     "ErrorCode",
     "HVError",

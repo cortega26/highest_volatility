@@ -17,6 +17,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+      - name: Capture runtime diagnostics
+        run: |
+          python scripts/diagnose_environment.py --summary \
+            --host query1.finance.yahoo.com \
+            --host example.com \
+            --url https://query1.finance.yahoo.com/v8/finance/chart/AAPL \
+            --url https://example.com \
+            --timeout 15
       - name: Fetch prices with retry
         run: |
           intervals=(1m 5m 10m 15m 30m 60m 1d)
