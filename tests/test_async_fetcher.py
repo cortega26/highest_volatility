@@ -10,6 +10,7 @@ from src.cache import store
 from ingest.async_fetch_prices import AsyncPriceFetcher
 from ingest.fetch_async import fetch_many_async
 from datasource.base_async import AsyncDataSource
+from datasource.yahoo_async import YahooAsyncDataSource
 from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
 
 
@@ -180,6 +181,56 @@ async def test_http_async_get_prices(monkeypatch):
     ds = YahooHTTPAsyncDataSource()
     df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 3), "1d")
     assert list(df["Adj Close"]) == [1.0, 2.0, 3.0]
+    assert df.index[0].year == 2020
+
+
+@pytest.mark.asyncio
+async def test_yahoo_async_get_prices_falls_back_to_close(monkeypatch):
+    FAKE_JSON = {
+        "chart": {
+            "result": [
+                {
+                    "timestamp": [1577836800, 1577923200, 1578009600],
+                    "indicators": {"quote": [{"close": [10.0, 11.0, 12.0]}]},
+                }
+            ]
+        }
+    }
+
+    class FakeResponse:
+        def __init__(self, data):
+            self._data = data
+
+        async def json(self):
+            return self._data
+
+        def raise_for_status(self):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, params=None):
+            return FakeResponse(FAKE_JSON)
+
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: FakeSession())
+
+    ds = YahooAsyncDataSource()
+    df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 3), "1d")
+    assert list(df["Adj Close"]) == [10.0, 11.0, 12.0]
     assert df.index[0].year == 2020
 
 
