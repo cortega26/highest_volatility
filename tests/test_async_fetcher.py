@@ -56,6 +56,65 @@ def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
     asyncio.run(fetcher.fetch_one("ABC", "1d", force_refresh=True))
     assert ds.calls[2][1] == date(2020, 1, 1)
 
+
+@pytest.mark.asyncio
+async def test_intraday_incremental_fetch_avoids_same_day_gap(monkeypatch):
+    cached_idx = pd.to_datetime(
+        ["2020-01-05 09:30", "2020-01-05 10:00"], format="%Y-%m-%d %H:%M"
+    )
+    cached_df = pd.DataFrame({"Adj Close": [100.0, 101.0]}, index=cached_idx)
+
+    new_idx = pd.to_datetime(
+        ["2020-01-05 10:30", "2020-01-05 11:00"], format="%Y-%m-%d %H:%M"
+    )
+    new_df = pd.DataFrame({"Adj Close": [102.0, 103.0]}, index=new_idx)
+
+    class IntradayDataSource(AsyncDataSource):
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, date, date, str]] = []
+
+        async def get_prices(
+            self, ticker: str, start: date, end: date, interval: str
+        ) -> pd.DataFrame:
+            self.calls.append((ticker, start, end, interval))
+            await asyncio.sleep(0)
+            return new_df.copy()
+
+        async def validate_ticker(self, ticker: str) -> bool:
+            return True
+
+    ds = IntradayDataSource()
+    fetcher = AsyncPriceFetcher(ds, throttle=0)
+
+    monkeypatch.setattr(
+        "ingest.async_fetch_prices.load_cached", lambda *_, **__: (cached_df.copy(), None)
+    )
+
+    saved: dict[str, pd.DataFrame] = {}
+
+    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+        saved["df"] = df.copy()
+
+    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return date(2020, 1, 5)
+
+    monkeypatch.setattr("ingest.async_fetch_prices.date", FrozenDate)
+
+    result = await fetcher.fetch_one("ABC", "30m")
+
+    assert ds.calls, "datasource should be queried for intraday increments"
+    start_arg = ds.calls[0][1]
+    assert start_arg <= FrozenDate.today()
+
+    expected_index = pd.Index(list(cached_idx) + list(new_idx))
+    pd.testing.assert_index_equal(result.index, expected_index)
+    pd.testing.assert_index_equal(saved["df"].index, expected_index)
+
+
 def test_fetch_many_async(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
     monkeypatch.setattr("ingest.async_fetch_prices.full_backfill_start", lambda interval, today=None: date(2020, 1, 1))
