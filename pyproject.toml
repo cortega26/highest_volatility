@@ -17,6 +17,7 @@ dependencies = [
     "fastapi-cache2",
     "slowapi",
     "redis",
+    "streamlit",
 ]
 
 [project.optional-dependencies]
