@@ -18,6 +18,7 @@ dependencies = [
     "slowapi",
     "redis",
     "streamlit",
+    "pydantic-settings",
 ]
 
 [project.optional-dependencies]

@@ -11,19 +11,21 @@ can override default configuration values.
 
 from __future__ import annotations
 
-import json
 import asyncio
+import json
+from typing import cast
 
 import redis.asyncio as redis
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
+from starlette.responses import Response
 
 from highest_volatility.app.cli import (
     DEFAULT_LOOKBACK_DAYS,
@@ -72,7 +74,13 @@ app = FastAPI(title="Highest Volatility API")
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
 app.state.limiter = limiter
 # Per-endpoint limits can be overridden with ``@app.state.limiter.limit("X/minute")``
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+def _rate_limit_handler(request: Request, exc: Exception) -> Response:
+    """Forward SlowAPI rate-limit exceptions to its default handler."""
+
+    return _rate_limit_exceeded_handler(request, cast(RateLimitExceeded, exc))
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 

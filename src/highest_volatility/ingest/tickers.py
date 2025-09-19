@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pandas as pd
-from bs4 import BeautifulSoup
 from highest_volatility.sources.selenium_universe import fetch_us500_fortune_pairs
 
 

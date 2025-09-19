@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Dict
 
 import aiohttp
 import pandas as pd
@@ -17,7 +17,7 @@ class YahooAsyncDataSource(AsyncDataSource):
     _BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 
     async def get_prices(self, ticker: str, start: date, end: date, interval: str) -> pd.DataFrame:
-        params = {
+        params: Dict[str, str | int] = {
             "interval": interval,
             "period1": int(datetime.combine(start, datetime.min.time()).timestamp()),
             "period2": int(

@@ -1,7 +1,8 @@
-from datetime import date
 import asyncio
+from datetime import date
 from typing import List
 
+import aiohttp
 import pandas as pd
 import pytest
 
@@ -9,6 +10,7 @@ from cache import store
 from ingest.async_fetch_prices import AsyncPriceFetcher
 from ingest.fetch_async import fetch_many_async
 from datasource.base_async import AsyncDataSource
+from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
 
 
 class FakeAsyncDataSource(AsyncDataSource):
@@ -70,13 +72,6 @@ def test_fetch_many_async(tmp_path, monkeypatch):
     res = asyncio.run(fetch_many_async(fetcher, ["AAA", "BBB"], "1d", max_concurrency=2))
     assert set(res.keys()) == {"AAA", "BBB"}
     assert all(isinstance(df, pd.DataFrame) for df in res.values())
-
-
-###################### New tests for YahooHTTPAsyncDataSource ######################
-
-import aiohttp
-
-from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
 
 
 @pytest.mark.asyncio

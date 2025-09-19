@@ -1,10 +1,9 @@
 import pytest
 
-pytest.skip("requires selenium and internet access", allow_module_level=True)
-
-import os
-
 from highest_volatility.universe import build_universe
+
+
+pytest.skip("requires selenium and internet access", allow_module_level=True)
 
 
 def test_universe_has_at_least_300_public_tickers():

@@ -11,7 +11,7 @@ import os
 from io import BytesIO
 
 import pandas as pd
-import requests
+import requests  # type: ignore[import]
 from highest_volatility.pipeline import validate_cache
 
 # Default on-disk cache root. Use project-visible folder as requested.

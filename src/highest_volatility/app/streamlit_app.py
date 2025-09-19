@@ -202,7 +202,7 @@ def _render() -> None:
     st.dataframe(styled_table, use_container_width=True)
 
     st.download_button(
-        f"Download metric ranking (CSV)",
+        "Download metric ranking (CSV)",
         data=table.to_csv(index=False),
         file_name=f"metric_ranking_{metric_key}.csv",
         mime="text/csv",

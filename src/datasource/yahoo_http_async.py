@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Dict
 
 import aiohttp
 import pandas as pd
@@ -35,6 +35,7 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
 
         is_intraday = yahoo_interval.endswith("m") or yahoo_interval in ("60m",)
 
+        params: Dict[str, str | int]
         if is_intraday:
             # Convert window length to whole days, clamp to at least 1 day
             window_days = max(1, int((dt_end - dt_start).total_seconds() // 86400))
