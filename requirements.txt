@@ -20,3 +20,4 @@ slowapi
 redis
 streamlit
 pydantic-settings
+httpx
