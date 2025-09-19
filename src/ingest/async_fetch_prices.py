@@ -88,6 +88,7 @@ class AsyncPriceFetcher:
             df_new.index = pd.to_datetime(df_new.index)
 
         df_new = df_new.sort_index()
+        df_new = df_new.dropna()
         try:
             merged = (
                 merge_incremental(cached_df, df_new) if cached_df is not None else df_new
@@ -102,9 +103,11 @@ class AsyncPriceFetcher:
             log_exception(logger, error, event="cache_merge_failed")
             raise error
 
+        merged = merged.dropna()
+
         if merged.empty:
             error = DataSourceError(
-                "No price data retrieved",
+                "No valid price data retrieved",
                 context={"ticker": ticker, "interval": interval},
             )
             log_exception(logger, error, event="datasource_empty_result")
