@@ -14,9 +14,15 @@ from typing import Optional
 
 import pandas as pd
 
+from highest_volatility.errors import CacheError, wrap_error
+from highest_volatility.logging import get_logger, log_exception
+
 
 CACHE_PATH = Path(".cache") / "tickers" / "fortune_500.csv"
 REPO_FALLBACK = Path("fortune500_tickers.csv")
+
+
+logger = get_logger(__name__, component="fortune_cache")
 
 
 @dataclass
@@ -32,7 +38,16 @@ def _info(path: Path) -> Optional[CacheInfo]:
         mtime = datetime.fromtimestamp(st.st_mtime)
         age = (datetime.now() - mtime).total_seconds() / 86400.0
         return CacheInfo(path=path, modified=mtime, age_days=age)
-    except Exception:
+    except FileNotFoundError:
+        return None
+    except Exception as exc:  # pragma: no cover - defensive
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to stat cache file",
+            context={"path": str(path)},
+        )
+        log_exception(logger, error, event="fortune_cache_stat_failed")
         return None
 
 
@@ -61,17 +76,25 @@ def load_cached_fortune(max_age_days: int = 30, *, min_rows: int = 100) -> Optio
     # Load the first viable candidate
     try:
         df = pd.read_csv(candidates[0])
-        cols = {c.lower() for c in df.columns}
-        if not {"rank", "company", "ticker"}.issubset(cols):
-            return None
-        if len(df) < min_rows:
-            return None
-        # Normalize columns
-        df = df.rename(columns=str.lower)
-        df["rank"] = pd.to_numeric(df["rank"], errors="coerce").astype("Int64")
-        return df.dropna(subset=["company", "ticker"]).reset_index(drop=True)
-    except Exception:
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to load cached Fortune list",
+            context={"path": str(candidates[0])},
+        )
+        log_exception(logger, error, event="fortune_cache_load_failed")
         return None
+
+    cols = {c.lower() for c in df.columns}
+    if not {"rank", "company", "ticker"}.issubset(cols):
+        return None
+    if len(df) < min_rows:
+        return None
+    # Normalize columns
+    df = df.rename(columns=str.lower)
+    df["rank"] = pd.to_numeric(df["rank"], errors="coerce").astype("Int64")
+    return df.dropna(subset=["company", "ticker"]).reset_index(drop=True)
 
 
 def save_cached_fortune(df: pd.DataFrame) -> None:
@@ -81,10 +104,20 @@ def save_cached_fortune(df: pd.DataFrame) -> None:
     """
 
     path = CACHE_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    df.to_csv(tmp, index=False)
-    tmp.replace(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        df.to_csv(tmp, index=False)
+        tmp.replace(path)
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to persist Fortune cache",
+            context={"path": str(path)},
+        )
+        log_exception(logger, error, event="fortune_cache_save_failed")
+        raise error
 
 
 __all__ = ["load_cached_fortune", "save_cached_fortune", "CACHE_PATH"]
