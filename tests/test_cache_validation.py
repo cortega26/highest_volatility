@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from cache import store
+from src.cache import store
 from highest_volatility.pipeline import validate_cache
 
 

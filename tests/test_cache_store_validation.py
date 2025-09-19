@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from cache.store import save_cache
+from src.cache.store import save_cache
 
 
 def test_save_cache_rejects_invalid_ticker(tmp_path, monkeypatch):
