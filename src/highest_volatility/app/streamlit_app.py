@@ -7,6 +7,8 @@ from typing import Sequence
 import pandas as pd
 import streamlit as st
 
+import altair as alt
+
 from highest_volatility.app.cli import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MIN_DAYS,
@@ -14,10 +16,8 @@ from highest_volatility.app.cli import (
     INTERVAL_CHOICES,
     METRIC_CHOICES,
 )
-from highest_volatility.app.ui_helpers import (
-    prepare_metric_table,
-    sanitize_price_matrix,
-)
+from highest_volatility.app.ui_helpers import prepare_metric_table, sanitize_price_matrix
+from highest_volatility.compute.metrics import max_drawdown, rolling_volatility
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.universe import build_universe
 
@@ -111,6 +111,18 @@ def _render() -> None:
         st.warning("No tickers were returned by the universe builder.")
         return
 
+    if fortune is not None and not fortune.empty:
+        universe_view = fortune.loc[:, [col for col in ("rank", "company", "ticker") if col in fortune.columns]]
+        if not universe_view.empty:
+            st.subheader("Fortune universe")
+            st.dataframe(universe_view, use_container_width=True)
+            st.download_button(
+                "Download universe (CSV)",
+                data=universe_view.to_csv(index=False),
+                file_name="fortune_universe.csv",
+                mime="text/csv",
+            )
+
     with st.spinner("Downloading price history…"):
         prices = _download_prices_cached(
             tuple(tickers),
@@ -170,7 +182,91 @@ def _render() -> None:
 
     metric_label = metric_key.replace("_", " ").title()
     st.subheader(f"Top tickers by {metric_label}")
-    st.dataframe(table, use_container_width=True)
+
+    highlight_n = min(10, len(table))
+
+    styled_table = table.style.apply(
+        lambda row: ["background-color: #fff3cd" if row.name < highlight_n else "" for _ in row],
+        axis=1,
+    )
+
+    st.dataframe(styled_table, use_container_width=True)
+
+    st.download_button(
+        f"Download metric ranking (CSV)",
+        data=table.to_csv(index=False),
+        file_name=f"metric_ranking_{metric_key}.csv",
+        mime="text/csv",
+    )
+
+    available_tickers = list(close_only.columns)
+    default_selection = table["ticker"].head(min(5, len(table))).tolist()
+    selected_tickers = st.multiselect(
+        "Tickers to visualize",
+        options=available_tickers,
+        default=[ticker for ticker in default_selection if ticker in available_tickers],
+    )
+
+    tabs = st.tabs(["Metrics & Prices", "Drawdowns", "Rolling Volatility"])
+
+    with tabs[0]:
+        st.markdown("#### Price history")
+        if selected_tickers:
+            price_history = (
+                close_only[selected_tickers]
+                .rename_axis("date")
+                .reset_index()
+                .melt(id_vars="date", var_name="ticker", value_name="close")
+            )
+            price_chart = (
+                alt.Chart(price_history)
+                .mark_line()
+                .encode(x="date:T", y="close:Q", color="ticker:N")
+                .properties(height=400)
+            )
+            st.altair_chart(price_chart, use_container_width=True)
+        else:
+            st.info("Select at least one ticker to display the price chart.")
+
+    with tabs[1]:
+        st.markdown("#### Drawdown history")
+        if selected_tickers:
+            drawdown = close_only[selected_tickers] / close_only[selected_tickers].cummax() - 1
+            drawdown_long = (
+                drawdown.rename_axis("date")
+                .reset_index()
+                .melt(id_vars="date", var_name="ticker", value_name="drawdown")
+            )
+            drawdown_chart = (
+                alt.Chart(drawdown_long)
+                .mark_line()
+                .encode(x="date:T", y=alt.Y("drawdown:Q", title="Drawdown"), color="ticker:N")
+                .properties(height=400)
+            )
+            st.altair_chart(drawdown_chart, use_container_width=True)
+            drawdown_summary = max_drawdown(close_only[selected_tickers])
+            st.dataframe(drawdown_summary, use_container_width=True)
+        else:
+            st.info("Select at least one ticker to review drawdowns.")
+
+    with tabs[2]:
+        st.markdown("#### Rolling volatility")
+        if selected_tickers:
+            rolling = rolling_volatility(close_only[selected_tickers])
+            rolling_chart = (
+                alt.Chart(rolling)
+                .mark_line()
+                .encode(
+                    x="date:T",
+                    y=alt.Y("rolling_volatility:Q", title="Annualized Volatility"),
+                    color="ticker:N",
+                    strokeDash=alt.StrokeDash("window:N", title="Window"),
+                )
+                .properties(height=400)
+            )
+            st.altair_chart(rolling_chart, use_container_width=True)
+        else:
+            st.info("Select at least one ticker to inspect rolling volatility.")
 
 
 _render()
