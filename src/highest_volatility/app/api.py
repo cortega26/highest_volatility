@@ -25,6 +25,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from highest_volatility.app.cli import (
@@ -36,6 +37,12 @@ from highest_volatility.compute.metrics import METRIC_REGISTRY
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.universe import build_universe
 from highest_volatility.pipeline.cache_refresh import schedule_cache_refresh
+from src.security.validation import (
+    SanitizationError,
+    sanitize_interval,
+    sanitize_metric,
+    sanitize_multiple_tickers,
+)
 
 
 class Settings(BaseSettings):
@@ -69,7 +76,22 @@ def get_settings() -> Settings:
     return settings
 
 
+class SecureHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach standard security headers to responses."""
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        response = await call_next(request)
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload"
+        )
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        return response
+
+
 app = FastAPI(title="Highest Volatility API")
+app.add_middleware(SecureHeadersMiddleware)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
 app.state.limiter = limiter
@@ -133,9 +155,12 @@ def prices_endpoint(
 ):
     """Return price history for ``tickers``."""
 
-    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
-    lb = lookback_days or settings.lookback_days
-    iv = interval or settings.interval
+    try:
+        ticker_list = sanitize_multiple_tickers(tickers)
+        lb = lookback_days or settings.lookback_days
+        iv = sanitize_interval(interval or settings.interval)
+    except SanitizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     pp = prepost if prepost is not None else settings.prepost
     df = download_price_history(ticker_list, lb, interval=iv, prepost=pp)
     if df.empty:
@@ -155,10 +180,13 @@ def metrics_endpoint(
 ):
     """Compute ``metric`` for ``tickers``."""
 
-    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
-    met = metric or settings.metric
-    lb = lookback_days or settings.lookback_days
-    iv = interval or settings.interval
+    try:
+        ticker_list = sanitize_multiple_tickers(tickers)
+        met = sanitize_metric(metric or settings.metric)
+        lb = lookback_days or settings.lookback_days
+        iv = sanitize_interval(interval or settings.interval)
+    except SanitizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     md = min_days or settings.min_days
     if met not in METRIC_REGISTRY:
         raise HTTPException(status_code=400, detail=f"Unknown metric '{met}'")
