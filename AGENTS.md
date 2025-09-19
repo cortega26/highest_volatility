@@ -1,7 +1,7 @@
 # AGENTS.md
 
 1. **Model choice — coding**  
-   Default to the highest-performing available model for coding tasks (e.g., gpt-5-codex high).  
+   Default to the highest-performing available model for coding tasks (e.g., gpt-5.1-codex high).  
    Record the exact model/version and any fallbacks used. Never use deprecated Codex models.
 
 2. **Determinism**  

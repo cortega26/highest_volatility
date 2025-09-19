@@ -12,6 +12,8 @@ fastapi-cache2
 slowapi
 redis
 streamlit
+pydantic-settings
+httpx
 
 [dev]
 pytest

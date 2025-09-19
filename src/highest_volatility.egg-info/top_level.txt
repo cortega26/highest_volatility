@@ -7,3 +7,4 @@ datasource
 highest_volatility
 ingest
 pipeline
+security
