@@ -28,6 +28,17 @@ def test_incremental_and_force_refresh(tmp_path, monkeypatch):
     ds = FakeDataSource()
     fetcher = PriceFetcher(ds, throttle=0)
 
+    saved: dict[tuple[str, str], pd.DataFrame] = {}
+
+    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+        saved[(ticker, interval)] = df.copy()
+
+    def fake_load_cached(ticker: str, interval: str):
+        return saved.get((ticker, interval)), None
+
+    monkeypatch.setattr("ingest.fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("ingest.fetch_prices.load_cached", fake_load_cached)
+
     class D1(date):
         @classmethod
         def today(cls):

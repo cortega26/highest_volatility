@@ -13,7 +13,7 @@ import asyncio
 from src.cache.store import load_cached
 from src.config.interval_policy import full_backfill_start
 from src.datasource.yahoo import YahooDataSource
-from src.datasource.yahoo_async import YahooAsyncDataSource
+from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
 from src.ingest.fetch_async import fetch_many_async
 from src.ingest.async_fetch_prices import AsyncPriceFetcher
 
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    datasource = YahooAsyncDataSource()
+    datasource = YahooHTTPAsyncDataSource()
     source_name = "yahoo"
 
     fetcher = AsyncPriceFetcher(datasource, source_name=source_name, throttle=args.throttle)
