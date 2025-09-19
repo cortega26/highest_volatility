@@ -16,6 +16,7 @@ where the path is already present.
 
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
 import sys
 
@@ -23,3 +24,24 @@ _SRC_ROOT = Path(__file__).resolve().parent
 _src_root_str = str(_SRC_ROOT)
 if _src_root_str not in sys.path:
     sys.path.insert(0, _src_root_str)
+
+
+def _alias_cache_modules() -> None:
+    """Expose ``cache`` modules for callers using legacy import paths."""
+
+    try:
+        cache_pkg = import_module("src.cache")
+    except ModuleNotFoundError:
+        return
+    sys.modules.setdefault("cache", cache_pkg)
+
+    for submodule in ("merge", "store"):
+        target = f"src.cache.{submodule}"
+        try:
+            module = import_module(target)
+        except ModuleNotFoundError:
+            continue
+        sys.modules.setdefault(f"cache.{submodule}", module)
+
+
+_alias_cache_modules()

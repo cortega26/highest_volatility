@@ -12,11 +12,6 @@ from io import BytesIO
 
 import pandas as pd
 import requests  # type: ignore[import]
-# ``store`` is imported both as ``cache.store`` (tests/tools) and as
-# ``src.cache.store`` (production entrypoints). Importing through the
-# ``src`` package works in both scenarios because ``src`` is explicitly added
-# to ``sys.path``. This avoids ModuleNotFoundError when running ``python -m
-# src.cli`` on CI.
 from src.highest_volatility.pipeline import validate_cache
 from src.security.validation import (
     SanitizationError,
@@ -137,3 +132,8 @@ def save_cache(
     tmp_manifest.write_text(json.dumps(asdict(manifest)))
     tmp_manifest.replace(manifest_path)
     return manifest
+
+
+import sys as _sys
+
+_sys.modules.setdefault("cache.store", _sys.modules[__name__])
