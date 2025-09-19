@@ -2,12 +2,54 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 from typing import Sequence
 
 import pandas as pd
 
 from highest_volatility.compute.metrics import METRIC_REGISTRY
+
+
+@dataclass(frozen=True, slots=True)
+class SanitizedPrices:
+    """Container describing the outcome of price sanitisation."""
+
+    filtered: pd.DataFrame
+    close_only: pd.DataFrame
+    dropped_short: list[str]
+    dropped_duplicate: list[str]
+    dropped_empty: list[str]
+
+    @property
+    def has_close_data(self) -> bool:
+        """Return ``True`` when at least one ticker survived sanitisation."""
+
+        return not self.close_only.empty
+
+    @property
+    def available_tickers(self) -> list[str]:
+        """Return the tickers present in the sanitised close-only frame."""
+
+        return list(self.close_only.columns)
+
+    def summarize_drops(self, *, min_days: int) -> list[str]:
+        """Generate human-friendly summaries of dropped tickers."""
+
+        messages: list[str] = []
+        if self.dropped_short:
+            messages.append(
+                f"{len(self.dropped_short)} tickers lacked the required {min_days} observations."
+            )
+        if self.dropped_duplicate:
+            messages.append(
+                f"{len(self.dropped_duplicate)} tickers were removed due to duplicate price series."
+            )
+        if self.dropped_empty:
+            messages.append(
+                f"{len(self.dropped_empty)} tickers contained only empty values after cleaning."
+            )
+        return messages
 
 
 def extract_close_frame(
@@ -42,18 +84,13 @@ def sanitize_price_matrix(
     *,
     min_days: int,
     tickers: Sequence[str] | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, list[str], list[str], list[str]]:
-    """Return a sanitized price matrix and close-only DataFrame.
-
-    The helper mirrors the CLI behaviour by ensuring that:
-    - columns with insufficient history are removed;
-    - duplicate price series (recent tails) are dropped; and
-    - the original price matrix only contains tickers that survived sanitisation.
-    """
+) -> SanitizedPrices:
+    """Return a sanitized price matrix and metadata describing the changes."""
 
     close = extract_close_frame(prices, tickers=tickers)
     if close.empty:
-        return prices.iloc[0:0], close, [], [], []
+        filtered = prices.iloc[0:0]
+        return SanitizedPrices(filtered, close, [], [], [])
 
     close = close.loc[:, ~close.columns.duplicated(keep="first")]
 
@@ -91,7 +128,7 @@ def sanitize_price_matrix(
     else:
         filtered = prices.copy()
 
-    return filtered, working, dropped_short, dropped_duplicate, dropped_empty
+    return SanitizedPrices(filtered, working, dropped_short, dropped_duplicate, dropped_empty)
 
 
 def prepare_metric_table(
@@ -152,4 +189,5 @@ __all__ = [
     "extract_close_frame",
     "sanitize_price_matrix",
     "prepare_metric_table",
+    "SanitizedPrices",
 ]
