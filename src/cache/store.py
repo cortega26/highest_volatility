@@ -13,6 +13,11 @@ from io import BytesIO
 import pandas as pd
 import requests  # type: ignore[import]
 from highest_volatility.pipeline import validate_cache
+from src.security.validation import (
+    SanitizationError,
+    sanitize_interval,
+    sanitize_single_ticker,
+)
 
 # Default on-disk cache root. Use project-visible folder as requested.
 CACHE_ROOT = Path("cache/prices")
@@ -59,6 +64,12 @@ def _hydrate_from_api(ticker: str, interval: str) -> None:
 def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Optional[Manifest]]:
     """Load cached prices and manifest for ``ticker``/``interval``."""
 
+    try:
+        ticker = sanitize_single_ticker(ticker)
+        interval = sanitize_interval(interval)
+    except SanitizationError as exc:
+        raise ValueError(f"Invalid cache lookup: {exc}") from exc
+
     parquet_path, manifest_path = _paths(ticker, interval)
     if not parquet_path.exists() or not manifest_path.exists():
         if os.getenv("GITHUB_ACTIONS") != "true":
@@ -88,6 +99,12 @@ def save_cache(
 
     if df.empty:
         raise ValueError("Cannot cache empty DataFrame")
+
+    try:
+        ticker = sanitize_single_ticker(ticker)
+        interval = sanitize_interval(interval)
+    except SanitizationError as exc:
+        raise ValueError(f"Invalid cache write: {exc}") from exc
 
     df = df.sort_index()
     manifest = Manifest(

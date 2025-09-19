@@ -19,6 +19,7 @@ dependencies = [
     "redis",
     "streamlit",
     "pydantic-settings",
+    "httpx",
 ]
 
 [project.optional-dependencies]
