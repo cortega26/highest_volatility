@@ -14,7 +14,8 @@ import pandas as pd
 import requests
 from highest_volatility.pipeline import validate_cache
 
-CACHE_ROOT = Path(".cache/prices")
+# Default on-disk cache root. Use project-visible folder as requested.
+CACHE_ROOT = Path("cache/prices")
 
 
 @dataclass
@@ -75,7 +76,14 @@ def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Opt
     return df, manifest
 
 
-def save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> Manifest:
+def save_cache(
+    ticker: str,
+    interval: str,
+    df: pd.DataFrame,
+    source: str,
+    *,
+    validate: bool = True,
+) -> Manifest:
     """Persist ``df`` and manifest to disk."""
 
     if df.empty:
@@ -93,7 +101,8 @@ def save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> Man
         updated_at=
         datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     )
-    validate_cache(df, manifest)
+    if validate:
+        validate_cache(df, manifest)
 
     parquet_path, manifest_path = _paths(ticker, interval)
     parquet_path.parent.mkdir(parents=True, exist_ok=True)
