@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Sequence
+
+if not __package__:
+    # Allow running via ``streamlit run`` without requiring ``pip install -e .``.
+    project_src = Path(__file__).resolve().parents[3]
+    if project_src.name != "src":
+        project_src = project_src / "src"
+    sys.path.insert(0, str(project_src))
 
 import pandas as pd
 import streamlit as st

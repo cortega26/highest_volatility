@@ -54,6 +54,11 @@ pip install -r requirements.txt
 streamlit run src/highest_volatility/app/streamlit_app.py
 ```
 
+The Streamlit entry point injects the repository's ``src`` directory onto
+``PYTHONPATH`` when launched directly, so you can run it without an editable
+install. Installing with ``pip install -e .`` remains a convenient alternative
+if you prefer relying on standard packaging workflows.
+
 The Streamlit app reads from the on-disk cache created by the CLI and API
 utilities. Populate it ahead of time by running your preferred cache refresh
 flow (for example, ``python scripts/refresh_cache.py``) or by hitting the FastAPI
