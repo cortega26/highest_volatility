@@ -11,6 +11,11 @@ from cache.merge import merge_incremental
 from cache.store import load_cached, save_cache
 from config.interval_policy import full_backfill_start
 from datasource.base_async import AsyncDataSource
+from highest_volatility.errors import CacheError, DataSourceError, wrap_error
+from highest_volatility.logging import get_logger, log_exception
+
+
+logger = get_logger(__name__, component="async_price_fetcher")
 
 
 class AsyncPriceFetcher:
@@ -45,7 +50,18 @@ class AsyncPriceFetcher:
         if force_refresh:
             cached_df = None
         else:
-            cached_df, _ = await asyncio.to_thread(load_cached, ticker, interval)
+            try:
+                cached_df, _ = await asyncio.to_thread(load_cached, ticker, interval)
+            except Exception as exc:
+                error = wrap_error(
+                    exc,
+                    CacheError,
+                    message="Failed to load cached prices",
+                    context={"ticker": ticker, "interval": interval},
+                    user_message="Unable to read cached prices; falling back to source.",
+                )
+                log_exception(logger, error, event="cache_load_failed")
+                cached_df = None
 
         start = full_backfill_start(interval) if force_refresh or cached_df is None else self._next_start(cached_df, interval)
         end = date.today()
@@ -56,6 +72,15 @@ class AsyncPriceFetcher:
 
         try:
             df_new = await self.datasource.get_prices(ticker, start, end, interval)
+        except Exception as exc:
+            error = wrap_error(
+                exc,
+                DataSourceError,
+                message="Datasource request failed",
+                context={"ticker": ticker, "interval": interval},
+            )
+            log_exception(logger, error, event="datasource_fetch_failed")
+            raise error
         finally:
             await asyncio.sleep(self.throttle)
 
@@ -63,10 +88,37 @@ class AsyncPriceFetcher:
             df_new.index = pd.to_datetime(df_new.index)
 
         df_new = df_new.sort_index()
-        merged = merge_incremental(cached_df, df_new) if cached_df is not None else df_new
+        try:
+            merged = (
+                merge_incremental(cached_df, df_new) if cached_df is not None else df_new
+            )
+        except Exception as exc:
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to merge incremental prices",
+                context={"ticker": ticker, "interval": interval},
+            )
+            log_exception(logger, error, event="cache_merge_failed")
+            raise error
 
         if merged.empty:
-            raise ValueError("No data retrieved")
+            error = DataSourceError(
+                "No price data retrieved",
+                context={"ticker": ticker, "interval": interval},
+            )
+            log_exception(logger, error, event="datasource_empty_result")
+            raise error
 
-        await asyncio.to_thread(save_cache, ticker, interval, merged, self.source_name)
+        try:
+            await asyncio.to_thread(save_cache, ticker, interval, merged, self.source_name)
+        except Exception as exc:
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to persist price cache",
+                context={"ticker": ticker, "interval": interval},
+            )
+            log_exception(logger, error, event="cache_save_failed")
+            raise error
         return merged

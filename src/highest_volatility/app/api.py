@@ -34,7 +34,14 @@ from highest_volatility.app.cli import (
     DEFAULT_TOP_N,
 )
 from highest_volatility.compute.metrics import METRIC_REGISTRY
+from highest_volatility.errors import (
+    ErrorCode,
+    HVError,
+    IntegrationError,
+    wrap_error,
+)
 from highest_volatility.ingest.prices import download_price_history
+from highest_volatility.logging import get_logger, log_exception
 from highest_volatility.universe import build_universe
 from highest_volatility.pipeline.cache_refresh import schedule_cache_refresh
 from src.security.validation import (
@@ -70,6 +77,27 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+logger = get_logger(__name__, component="rest_api")
+
+
+_STATUS_BY_CODE = {
+    ErrorCode.VALIDATION: 400,
+    ErrorCode.DATA_SOURCE: 502,
+    ErrorCode.CACHE: 503,
+    ErrorCode.INTEGRATION: 502,
+    ErrorCode.CONFIG: 500,
+    ErrorCode.COMPUTE: 500,
+}
+
+
+def _handle_error(error: HVError, *, event: str, endpoint: str) -> None:
+    """Log ``error`` and raise an HTTP response."""
+
+    log_exception(logger, error, event=event, context={"endpoint": endpoint})
+    status = _STATUS_BY_CODE.get(error.code, 500)
+    raise HTTPException(status_code=status, detail=error.user_message)
 
 
 def get_settings() -> Settings:
@@ -140,7 +168,18 @@ def universe_endpoint(
     """Return a validated ticker universe."""
 
     limit = top_n or settings.top_n
-    tickers, fortune = build_universe(limit, validate=True)
+    try:
+        tickers, fortune = build_universe(limit, validate=True)
+    except HVError as error:  # pragma: no cover - defensive
+        _handle_error(error, event="universe_failure", endpoint="universe")
+    except Exception as exc:  # pragma: no cover - defensive
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to build Fortune universe",
+            context={"top_n": limit},
+        )
+        _handle_error(error, event="universe_failure", endpoint="universe")
     return {"tickers": tickers, "fortune": fortune.to_dict(orient="records")}
 
 
@@ -160,9 +199,20 @@ def prices_endpoint(
         lb = lookback_days or settings.lookback_days
         iv = sanitize_interval(interval or settings.interval)
     except SanitizationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _handle_error(exc, event="prices_validation", endpoint="prices")
     pp = prepost if prepost is not None else settings.prepost
-    df = download_price_history(ticker_list, lb, interval=iv, prepost=pp)
+    try:
+        df = download_price_history(ticker_list, lb, interval=iv, prepost=pp)
+    except HVError as error:
+        _handle_error(error, event="prices_failure", endpoint="prices")
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to download price history",
+            context={"tickers": ticker_list, "interval": iv},
+        )
+        _handle_error(error, event="prices_failure", endpoint="prices")
     if df.empty:
         return {"data": []}
     return json.loads(df.to_json(orient="split", date_format="iso"))
@@ -186,13 +236,38 @@ def metrics_endpoint(
         lb = lookback_days or settings.lookback_days
         iv = sanitize_interval(interval or settings.interval)
     except SanitizationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _handle_error(exc, event="metrics_validation", endpoint="metrics")
     md = min_days or settings.min_days
     if met not in METRIC_REGISTRY:
-        raise HTTPException(status_code=400, detail=f"Unknown metric '{met}'")
-    prices = download_price_history(ticker_list, lb, interval=iv)
+        error = HVError(
+            f"Unknown metric '{met}'",
+            code=ErrorCode.VALIDATION,
+            context={"metric": met},
+        )
+        _handle_error(error, event="metrics_validation", endpoint="metrics")
+    try:
+        prices = download_price_history(ticker_list, lb, interval=iv)
+    except HVError as error:
+        _handle_error(error, event="metrics_price_failure", endpoint="metrics")
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to download price history",
+            context={"tickers": ticker_list, "interval": iv},
+        )
+        _handle_error(error, event="metrics_price_failure", endpoint="metrics")
     func = METRIC_REGISTRY[met]
-    result = func(prices, tickers=ticker_list, min_periods=md, interval=iv)
+    try:
+        result = func(prices, tickers=ticker_list, min_periods=md, interval=iv)
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Metric computation failed",
+            context={"metric": met, "tickers": len(ticker_list)},
+        )
+        _handle_error(error, event="metrics_failure", endpoint="metrics")
     return result.to_dict(orient="records")
 
 

@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable, Dict
 
 import pandas as pd
 
 from .fetch_prices import PriceFetcher
+from highest_volatility.errors import DataSourceError, HVError, wrap_error
+from highest_volatility.logging import get_logger, log_exception
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, component="parallel_fetch")
 
 
 def fetch_many(
@@ -33,6 +34,14 @@ def fetch_many(
             t = future_map[fut]
             try:
                 results[t] = fut.result()
-            except Exception as exc:  # pragma: no cover - logging path
-                logger.warning("Failed to fetch %s: %s", t, exc)
+            except HVError as error:  # pragma: no cover - logging path
+                log_exception(logger, error.add_context(ticker=t, interval=interval), event="parallel_fetch_failed")
+            except Exception as exc:  # pragma: no cover - defensive
+                error = wrap_error(
+                    exc,
+                    DataSourceError,
+                    message="Parallel fetch failed",
+                    context={"ticker": t, "interval": interval},
+                )
+                log_exception(logger, error, event="parallel_fetch_failed")
     return results

@@ -22,6 +22,12 @@ from highest_volatility.storage.ticker_cache import (
 from highest_volatility.ingest.tickers import normalize_ticker
 import re
 
+from highest_volatility.errors import CacheError, HVError, IntegrationError, wrap_error
+from highest_volatility.logging import get_logger, log_exception
+
+
+logger = get_logger(__name__, component="universe")
+
 
 def _validate_tickers_have_history(
     tickers: List[str], *, min_days: int = 1
@@ -85,11 +91,25 @@ def build_universe(
                 print(f"      Using cached Fortune list ({len(fortune_df)} rows)")
             except Exception:
                 pass
+            logger.info({"event": "fortune_cache_used", "rows": len(fortune_df)})
 
     if fortune_df is None:
         # Fetch via Selenium and then persist to cache
         target_to_fetch = max(first_n_fortune * 2, first_n_fortune + 100)
-        pairs: List[Tuple[str, str]] = fetch_us500_fortune_pairs(target_to_fetch)
+        try:
+            pairs: List[Tuple[str, str]] = fetch_us500_fortune_pairs(target_to_fetch)
+        except HVError as error:  # pragma: no cover - defensive
+            log_exception(logger, error, event="fortune_scrape_failed")
+            raise
+        except Exception as exc:  # pragma: no cover - defensive
+            error = wrap_error(
+                exc,
+                IntegrationError,
+                message="Failed to scrape Fortune list",
+                context={"target": target_to_fetch},
+            )
+            log_exception(logger, error, event="fortune_scrape_failed")
+            raise error
         # Deduplicate and build DataFrame with rank order as encountered
         seen = set()
         recs: List[dict] = []
@@ -109,14 +129,28 @@ def build_universe(
                 print(f"      Scraped and cached Fortune list ({len(fortune_df)} rows)")
             except Exception:
                 pass
-        except Exception:
-            pass
+            logger.info({"event": "fortune_cache_saved", "rows": len(fortune_df)})
+        except HVError as error:  # pragma: no cover - logging path
+            log_exception(logger, error, event="fortune_cache_save_failed")
+        except Exception as exc:  # pragma: no cover - defensive
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to persist Fortune cache",
+                context={"rows": len(fortune_df)},
+            )
+            log_exception(logger, error, event="fortune_cache_save_failed")
     # Ensure rank ordering if present
     if "rank" in fortune_df.columns:
         try:
             fortune_df = fortune_df.sort_values("rank").reset_index(drop=True)
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            error = wrap_error(
+                exc,
+                IntegrationError,
+                message="Failed to sort Fortune list",
+            )
+            log_exception(logger, error, event="fortune_sort_failed")
 
     # Deduplicate by normalized ticker while preserving order
     tickers: List[str] = []
@@ -157,8 +191,15 @@ def build_universe(
         sel = base.set_index("ticker").loc[final_tickers, ["rank", "company"]]
         sel = sel.reset_index().rename(columns={"index": "ticker"})
         fortune = sel[["rank", "company", "ticker"]]
-    except Exception:
+    except Exception as exc:
         # Fallback to enumerated ranks
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to align Fortune rankings",
+            context={"tickers": len(final_tickers)},
+        )
+        log_exception(logger, error, event="fortune_alignment_failed")
         ranks = list(range(1, len(final_tickers) + 1))
         fortune = pd.DataFrame({
             "rank": ranks,

@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Iterable, Dict
 
 import pandas as pd
 
 from .async_fetch_prices import AsyncPriceFetcher
+from highest_volatility.errors import DataSourceError, HVError, wrap_error
+from highest_volatility.logging import get_logger, log_exception
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, component="async_fetch")
 
 
 async def fetch_many_async(
@@ -28,7 +29,17 @@ async def fetch_many_async(
 
     async def worker(t: str) -> tuple[str, pd.DataFrame]:
         async with sem:
-            df = await fetcher.fetch_one(t, interval, force_refresh=force_refresh)
+            try:
+                df = await fetcher.fetch_one(t, interval, force_refresh=force_refresh)
+            except HVError as error:
+                raise error.add_context(ticker=t, interval=interval)
+            except Exception as exc:
+                raise wrap_error(
+                    exc,
+                    DataSourceError,
+                    message="Async fetch failed",
+                    context={"ticker": t, "interval": interval},
+                )
             return t, df
 
     tasks = [asyncio.create_task(worker(t)) for t in tickers]
@@ -36,6 +47,14 @@ async def fetch_many_async(
         try:
             t, df = await fut
             results[t] = df
-        except Exception as exc:  # pragma: no cover - logging path
-            logger.warning("Failed to fetch ticker: %s", exc)
+        except HVError as error:  # pragma: no cover - logging path
+            log_exception(logger, error, event="async_fetch_failed")
+        except Exception as exc:  # pragma: no cover - defensive
+            error = wrap_error(
+                exc,
+                DataSourceError,
+                message="Async fetch failed",
+                context={"interval": interval},
+            )
+            log_exception(logger, error, event="async_fetch_failed")
     return results

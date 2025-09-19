@@ -9,6 +9,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import Scope
 
 from cache.store import load_cached
+from highest_volatility.errors import CacheError, ErrorCode, HVError, wrap_error
+from highest_volatility.logging import get_logger, log_exception
 from highest_volatility.storage.ticker_cache import load_cached_fortune
 from src.security.validation import (
     SanitizationError,
@@ -43,6 +45,22 @@ app.add_middleware(
 )
 
 
+logger = get_logger(__name__, component="data_api")
+
+
+_STATUS_BY_CODE = {
+    ErrorCode.VALIDATION: 400,
+    ErrorCode.CACHE: 503,
+    ErrorCode.DATA_SOURCE: 502,
+}
+
+
+def _handle_error(error: HVError, *, event: str, endpoint: str) -> None:
+    log_exception(logger, error, event=event, context={"endpoint": endpoint})
+    status = _STATUS_BY_CODE.get(error.code, 500)
+    raise HTTPException(status_code=status, detail=error.user_message)
+
+
 @app.get("/prices/{ticker}")
 def get_prices(
     ticker: str,
@@ -54,9 +72,20 @@ def get_prices(
         interval = sanitize_interval(interval)
         fmt = sanitize_download_format(fmt)
     except SanitizationError as exc:  # pragma: no cover - defensive
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _handle_error(exc, event="prices_validation", endpoint="prices")
 
-    df, _ = load_cached(ticker, interval)
+    try:
+        df, _ = load_cached(ticker, interval)
+    except HVError as error:  # pragma: no cover - defensive
+        _handle_error(error, event="prices_cache_failure", endpoint="prices")
+    except Exception as exc:  # pragma: no cover - defensive
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to load cached prices",
+            context={"ticker": ticker, "interval": interval},
+        )
+        _handle_error(error, event="prices_cache_failure", endpoint="prices")
     if df is None:
         raise HTTPException(status_code=404, detail="Ticker not found")
 
@@ -64,7 +93,16 @@ def get_prices(
         return json.loads(df.to_json(orient="split", date_format="iso"))
     if fmt == "parquet":
         buf = BytesIO()
-        df.to_parquet(buf)
+        try:
+            df.to_parquet(buf)
+        except Exception as exc:  # pragma: no cover - defensive
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to serialise parquet response",
+                context={"ticker": ticker, "interval": interval},
+            )
+            _handle_error(error, event="prices_serialisation_failure", endpoint="prices")
         filename = f"{ticker}_{interval}.parquet"
         return Response(
             buf.getvalue(),
@@ -83,13 +121,22 @@ def get_fortune_tickers(fmt: str = "json"):
     try:
         fmt = sanitize_download_format(fmt)
     except SanitizationError as exc:  # pragma: no cover - defensive
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _handle_error(exc, event="fortune_validation", endpoint="fortune-tickers")
 
     if fmt == "json":
         return {"tickers": df["ticker"].dropna().tolist()}
     if fmt == "parquet":
         buf = BytesIO()
-        df.to_parquet(buf)
+        try:
+            df.to_parquet(buf)
+        except Exception as exc:  # pragma: no cover - defensive
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to serialise fortune parquet",
+                context={"rows": len(df)},
+            )
+            _handle_error(error, event="fortune_serialisation_failure", endpoint="fortune-tickers")
         return Response(
             buf.getvalue(),
             media_type="application/x-parquet",
