@@ -47,11 +47,21 @@ observation count directly from the sidebar. Additional toggles allow skipping
 Selenium validation of the Fortune universe and opting into asynchronous price
 fetching.
 
-Launch the UI with:
+Set up and launch the UI with:
 
 ```bash
+pip install -r requirements.txt
 streamlit run src/highest_volatility/app/streamlit_app.py
 ```
+
+The Streamlit app reads from the on-disk cache created by the CLI and API
+utilities. Populate it ahead of time by running your preferred cache refresh
+flow (for example, ``python scripts/refresh_cache.py``) or by hitting the FastAPI
+service.
+
+When the ``HV_API_BASE_URL`` environment variable is defined, the UI will source
+missing price history directly from the FastAPI backend instead of the local
+cache. Unset the variable to operate entirely offline.
 
 Results are displayed as a sortable table with warning banners when price data
 is unavailable for the selected configuration.
