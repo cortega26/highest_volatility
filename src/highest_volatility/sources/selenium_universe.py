@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from contextlib import contextmanager
 import os
-from typing import Iterable, List, Tuple, Optional
+from typing import Iterator, List, Tuple
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -23,7 +23,7 @@ from selenium_stealth import stealth
 
 
 @contextmanager
-def chrome() -> Iterable[webdriver.Chrome]:
+def chrome() -> Iterator[webdriver.Chrome]:
     """Provision a hardened, headless Chrome driver.
 
     Uses selenium-stealth to reduce automation fingerprints and

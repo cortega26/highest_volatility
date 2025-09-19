@@ -1,11 +1,10 @@
-import pytest
-
-pytest.skip("integration test requires selenium and network", allow_module_level=True)
-
-
 import re
 import subprocess
 import sys
+
+import pytest
+
+pytest.skip("integration test requires selenium and network", allow_module_level=True)
 
 
 def test_cli_prints_200_rows():

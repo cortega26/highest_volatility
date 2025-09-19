@@ -7,7 +7,7 @@ headless Selenium browser hardened with selenium-stealth.
 
 from __future__ import annotations
 
-from typing import Iterable, List, Tuple
+from typing import List, Tuple
 
 import pandas as pd
 import yfinance as yf

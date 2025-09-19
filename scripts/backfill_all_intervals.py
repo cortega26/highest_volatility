@@ -16,19 +16,18 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import Iterable, List
+from typing import List
 
-# Ensure local src is importable when running from repo
-_HERE = Path(__file__).resolve()
-_ROOT = _HERE.parents[1]
-_SRC = _ROOT / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
-from ingest.async_fetch_prices import AsyncPriceFetcher
-from ingest.fetch_async import fetch_many_async
-from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
-from cache.store import CACHE_ROOT
+def _ensure_src_on_path() -> Path:
+    """Make sure the repository ``src`` directory is importable."""
+
+    here = Path(__file__).resolve()
+    root = here.parents[1]
+    src = root / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    return src
 
 
 def _read_tickers_from_file(p: Path) -> List[str]:
@@ -38,6 +37,10 @@ def _read_tickers_from_file(p: Path) -> List[str]:
 
 def _discover_tickers() -> List[str]:
     """Discover tickers from existing cache CSVs/Parquet as a fallback."""
+
+    _ensure_src_on_path()
+    from cache.store import CACHE_ROOT  # Local import to avoid lint errors
+
     root = CACHE_ROOT
     out: set[str] = set()
     # Legacy CSVs at root
@@ -53,6 +56,11 @@ def _discover_tickers() -> List[str]:
 
 
 async def _backfill_interval(tickers: List[str], interval: str, *, concurrency: int, throttle: float) -> None:
+    _ensure_src_on_path()
+    from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+    from ingest.async_fetch_prices import AsyncPriceFetcher
+    from ingest.fetch_async import fetch_many_async
+
     ds = YahooHTTPAsyncDataSource()
     fetcher = AsyncPriceFetcher(ds, source_name="yahoo-http", throttle=throttle)
     await fetch_many_async(fetcher, tickers, interval, max_concurrency=concurrency)

@@ -23,15 +23,16 @@ from typing import Iterable
 
 import pandas as pd
 
-# Ensure local 'src' is importable when running as a script without install
-_HERE = Path(__file__).resolve()
-_ROOT = _HERE.parents[1]
-_SRC = _ROOT / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
-from cache.store import save_cache, CACHE_ROOT
-from config.interval_policy import INTERVAL_WINDOWS
+def _ensure_src_on_path() -> Path:
+    """Ensure the repository ``src`` directory is importable."""
+
+    here = Path(__file__).resolve()
+    root = here.parents[1]
+    src = root / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    return src
 
 
 def _iter_legacy_daily_csv(root: Path) -> Iterable[Path]:
@@ -76,13 +77,17 @@ def _has_time_components(df: pd.DataFrame) -> bool:
 
 async def _refetch_30m(ticker: str, *, days: int = 60) -> pd.DataFrame:
     # Lazy import to keep script light if user only runs daily conversion
+    _ensure_src_on_path()
+    from config.interval_policy import INTERVAL_WINDOWS
+
     try:
         from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("Missing YahooHTTPAsyncDataSource in runtime") from exc
 
     ds = YahooHTTPAsyncDataSource()
-    max_days = int(INTERVAL_WINDOWS.get("30m").days) if INTERVAL_WINDOWS.get("30m") else 60
+    window = INTERVAL_WINDOWS.get("30m")
+    max_days = int(window.days) if window is not None else 60
     days = min(days, max_days)
     end = date.today()
     start = end - timedelta(days=days)
@@ -93,6 +98,9 @@ async def _refetch_30m(ticker: str, *, days: int = 60) -> pd.DataFrame:
 
 
 def convert_legacy_daily(root: Path, *, delete_legacy: bool = False, dry_run: bool = False) -> None:
+    _ensure_src_on_path()
+    from cache.store import save_cache
+
     for csv in _iter_legacy_daily_csv(root):
         ticker = csv.stem
         try:
@@ -113,6 +121,9 @@ def convert_legacy_daily(root: Path, *, delete_legacy: bool = False, dry_run: bo
 
 
 def repair_30m(root: Path, *, refetch_days: int = 60, delete_legacy: bool = False, dry_run: bool = False) -> None:
+    _ensure_src_on_path()
+    from cache.store import save_cache
+
     to_fix: list[Path] = []
     for csv in _iter_legacy_30m_csv(root):
         try:
@@ -141,6 +152,9 @@ def repair_30m(root: Path, *, refetch_days: int = 60, delete_legacy: bool = Fals
 
     # Refetch those lacking intraday times
     async def _do_refetch():
+        _ensure_src_on_path()
+        from cache.store import save_cache
+
         for csv in to_fix:
             ticker = csv.stem
             try:
@@ -159,6 +173,9 @@ def repair_30m(root: Path, *, refetch_days: int = 60, delete_legacy: bool = Fals
 
 
 def main() -> None:
+    _ensure_src_on_path()
+    from cache.store import CACHE_ROOT
+
     parser = argparse.ArgumentParser(description="Normalize cache layout and fix intraday timestamps")
     parser.add_argument("--root", type=Path, default=CACHE_ROOT, help="Cache root (default: cache/prices)")
     parser.add_argument("--dry-run", action="store_true", help="Only print actions without writing")

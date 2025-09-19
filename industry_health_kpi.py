@@ -38,14 +38,12 @@ Usage example:
     PY
 """
 
-from typing import List, Dict, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from collections import defaultdict
 
 try:
-    from sklearn.decomposition import PCA
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import StratifiedKFold, cross_val_predict
     SKLEARN_AVAILABLE = True
@@ -53,8 +51,10 @@ except Exception:
     SKLEARN_AVAILABLE = False
 
 
-def robust_sector_scale(df: pd.DataFrame, sector_col: str, feature_cols: List[str]):
-    params = defaultdict(dict)
+def robust_sector_scale(
+    df: pd.DataFrame, sector_col: str, feature_cols: List[str]
+) -> Tuple[pd.DataFrame, Dict[str, Dict[str, Tuple[float, float]]]]:
+    params: Dict[str, Dict[str, Tuple[float, float]]] = {}
     df_scaled = df.copy()
     for sec, g in df.groupby(sector_col):
         for f in feature_cols:
@@ -62,7 +62,7 @@ def robust_sector_scale(df: pd.DataFrame, sector_col: str, feature_cols: List[st
             iqr = g[f].quantile(0.75) - g[f].quantile(0.25)
             if pd.isna(iqr) or iqr == 0:
                 iqr = 1.0
-            params[sec][f] = (med, iqr)
+            params.setdefault(sec, {})[f] = (float(med), float(iqr))
             df_scaled.loc[g.index, f] = (g[f] - med) / iqr
     return df_scaled, params
 
@@ -202,12 +202,12 @@ def bootstrap_scores(scores: pd.Series, group: pd.Series, n_boot=200, random_sta
             se.loc[idx] = float(scores.loc[idx].std(ddof=1)
                                 ) if len(idx) > 1 else 0.0
             continue
-        boot = []
+        boot_samples: List[np.ndarray] = []
         for _ in range(n_boot):
             sample_idx = rng.choice(idx, size=len(idx), replace=True)
-            boot.append(scores.loc[sample_idx].values)
-        boot = np.array(boot)
-        se_vals = boot.std(axis=0, ddof=1)
+            boot_samples.append(scores.loc[sample_idx].to_numpy())
+        boot_arr = np.vstack(boot_samples)
+        se_vals = boot_arr.std(axis=0, ddof=1)
         se.loc[idx] = se_vals
     return se
 

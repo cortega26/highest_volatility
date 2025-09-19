@@ -2,10 +2,8 @@ from datetime import date
 from typing import List
 
 import pandas as pd
-import pytest
 
 from cache import store
-from config import interval_policy
 from datasource.base import DataSource
 from ingest.fetch_prices import PriceFetcher
 

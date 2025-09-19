@@ -6,7 +6,7 @@ import runpy
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 
 class _DummyContext:
@@ -15,7 +15,7 @@ class _DummyContext:
     def __enter__(self) -> "_DummyContext":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:  # pragma: no cover - interface only
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:  # pragma: no cover - interface only
         return False
 
     def __getattr__(self, name: str) -> Callable[..., Any]:

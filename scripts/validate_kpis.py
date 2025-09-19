@@ -9,7 +9,6 @@ computes volatility measures, then prints the top rows.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Tuple
 from datetime import datetime, timedelta

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
-import os
 import logging
 import asyncio
 import time
@@ -153,8 +152,10 @@ def download_price_history(
         return combined.dropna(how="all")
 
     async def _async_download() -> pd.DataFrame:
-        datasource_cls = YahooAsyncDataSource or YahooHTTPAsyncDataSource
-        datasource = datasource_cls()
+        if YahooAsyncDataSource is not None:
+            datasource = YahooAsyncDataSource()
+        else:
+            datasource = YahooHTTPAsyncDataSource()
         end_date = date.today()
         start_date = end_date - timedelta(days=lookback_days * 2)
         sem = asyncio.Semaphore(max_workers)
@@ -165,10 +166,13 @@ def download_price_history(
                 return ticker, df
 
         tasks = [asyncio.create_task(_one(t)) for t in tickers]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = cast(
+            List[tuple[str, pd.DataFrame] | BaseException],
+            await asyncio.gather(*tasks, return_exceptions=True),
+        )
         frames: Dict[str, pd.DataFrame] = {}
         for res in results:
-            if isinstance(res, Exception):
+            if isinstance(res, BaseException):
                 continue
             t, df = res
             if df is not None and not df.empty:

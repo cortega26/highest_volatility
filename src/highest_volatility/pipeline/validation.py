@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Validation utilities for cached price data."""
 
 from typing import TYPE_CHECKING

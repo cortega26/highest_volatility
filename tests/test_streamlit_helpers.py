@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
-from typing import Iterable
+from typing import Any, Iterable, Iterator, MutableMapping
 
 import pandas as pd
 import pytest
@@ -12,7 +12,7 @@ import pytest
 MODULE_NAME = "highest_volatility.app.ui_helpers"
 
 
-def _reload_helpers() -> object:
+def _reload_helpers() -> Any:
     """Import the helpers module, ensuring a fresh module load."""
 
     sys.modules.pop(MODULE_NAME, None)
@@ -20,14 +20,14 @@ def _reload_helpers() -> object:
 
 
 @pytest.fixture
-def helpers_module() -> object:
+def helpers_module() -> Any:
     """Provide a freshly imported helpers module for each test."""
 
     return _reload_helpers()
 
 
 @pytest.fixture
-def metric_registry(helpers_module: object) -> dict[str, object]:
+def metric_registry(helpers_module: Any) -> Iterator[MutableMapping[str, Any]]:
     """Return a temporary metric registry that is restored after the test."""
 
     from highest_volatility.compute import metrics as metrics_module
@@ -61,8 +61,8 @@ def test_helpers_import_does_not_require_streamlit() -> None:
 def test_prepare_metric_table_sorts_by_metric(
     metric_key: str,
     values: Iterable[float],
-    helpers_module: object,
-    metric_registry: dict[str, object],
+    helpers_module: Any,
+    metric_registry: MutableMapping[str, Any],
 ) -> None:
     """The helper should sort rows and label metric columns per key."""
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Pure functions for analysing price volatility.
 
 The helpers here operate on DataFrames of adjusted close prices where the
@@ -8,10 +6,11 @@ index contains dates and columns are ticker symbols.  All functions return
 consistent manner.
 """
 
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Union, cast
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from typing import Callable, Dict, List
 
 TRADING_DAYS_PER_YEAR = 252
 TRADING_MINUTES_PER_DAY = 390
@@ -320,7 +319,7 @@ def additional_volatility_measures(
 
     per_year = periods_per_year(interval)
     ln2 = np.log(2.0)
-    results: List[Dict[str, float]] = []
+    results: List[Dict[str, Union[float, str]]] = []
 
     # Standardize columns layout to level0=field, level1=ticker if MultiIndex
     if isinstance(raw.columns, pd.MultiIndex):
@@ -338,7 +337,7 @@ def additional_volatility_measures(
             return None
 
     for t in tickers:
-        rec: Dict[str, float] = {"ticker": t}
+        rec: Dict[str, Union[float, str]] = {"ticker": t}
 
         s_close = _get_series("Adj Close", t)
         if s_close is None:
@@ -538,11 +537,19 @@ def load_plugins() -> None:
         entry_points = None  # type: ignore
 
     if entry_points is not None:  # pragma: no branch
+        eps_iter: Iterable
         try:
-            eps = entry_points(group="highest_volatility.metrics")
+            eps_iter = entry_points(group="highest_volatility.metrics")
         except TypeError:  # pragma: no cover - Python <3.10
-            eps = entry_points().get("highest_volatility.metrics", [])
-        for ep in eps:
+            all_eps = entry_points()
+            if hasattr(all_eps, "select"):
+                eps_iter = all_eps.select(group="highest_volatility.metrics")
+            else:  # pragma: no cover - legacy API
+                eps_iter = cast(
+                    Iterable,
+                    all_eps.get("highest_volatility.metrics", ()) or (),
+                )
+        for ep in eps_iter:
             try:
                 func = ep.load()
             except Exception:  # pragma: no cover - plugin errors shouldn't crash
@@ -573,7 +580,7 @@ def load_plugins() -> None:
 load_plugins()
 
 
-__all__ = [
+__all__: List[str] = [
     "TRADING_DAYS_PER_YEAR",
     "TRADING_MINUTES_PER_DAY",
     "daily_returns",
