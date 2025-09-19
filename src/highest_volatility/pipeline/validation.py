@@ -15,6 +15,7 @@ FREQ_MAP = {
     "30m": "30min",
     "60m": "60min",
     "1h": "60min",
+    "1d": "B",
     "1wk": "W",
     "1mo": "M",
 }
@@ -29,6 +30,22 @@ DELTA_MAP = {
     "1h": pd.Timedelta("60min"),
     "1d": pd.Timedelta("1D"),
 }
+
+
+def _is_daily_interval(interval: str) -> bool:
+    """Return ``True`` when the manifest interval represents daily data."""
+
+    return interval.lower().endswith("d")
+
+
+def _validate_business_day_index(index: pd.DatetimeIndex) -> None:
+    """Ensure an index covers every business day between its endpoints."""
+
+    normalized = index.normalize()
+    tz = normalized.tz
+    expected = pd.bdate_range(normalized.min(), normalized.max(), tz=tz)
+    if len(expected) != len(index) or not normalized.equals(expected):
+        raise ValueError("Gap detected in index")
 
 
 def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
@@ -72,11 +89,16 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
                 expected = pd.date_range(group.index.min(), group.index.max(), freq=freq)
                 if len(expected) != len(group):
                     raise ValueError("Gap detected in index")
+        elif _is_daily_interval(manifest.interval) or freq.upper() in {"B", "C"} or freq.upper().endswith("D"):
+            _validate_business_day_index(df.index)
         else:
             expected = pd.date_range(df.index.min(), df.index.max(), freq=freq)
             if len(expected) != len(df):
                 raise ValueError("Gap detected in index")
     else:
-        delta = DELTA_MAP.get(manifest.interval)
-        if delta is not None and not df.index.to_series().diff().dropna().le(delta).all():
-            raise ValueError("Gap detected in index")
+        if _is_daily_interval(manifest.interval):
+            _validate_business_day_index(df.index)
+        else:
+            delta = DELTA_MAP.get(manifest.interval)
+            if delta is not None and not df.index.to_series().diff().dropna().le(delta).all():
+                raise ValueError("Gap detected in index")
