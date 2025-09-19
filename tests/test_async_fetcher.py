@@ -3,8 +3,11 @@ from datetime import date
 from typing import List
 
 import aiohttp
+from aiohttp.client_reqrep import RequestInfo
+from multidict import CIMultiDict, CIMultiDictProxy
 import pandas as pd
 import pytest
+from yarl import URL
 
 from src.cache import store
 from ingest.async_fetch_prices import AsyncPriceFetcher
@@ -34,6 +37,17 @@ def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
 
     ds = FakeAsyncDataSource()
     fetcher = AsyncPriceFetcher(ds, throttle=0)
+
+    saved: dict[tuple[str, str], pd.DataFrame] = {}
+
+    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+        saved[(ticker, interval)] = df.copy()
+
+    def fake_load_cached(ticker: str, interval: str):
+        return saved.get((ticker, interval)), None
+
+    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("ingest.async_fetch_prices.load_cached", fake_load_cached)
 
     class D1(date):
         @classmethod
@@ -172,6 +186,17 @@ def test_fetch_many_async(tmp_path, monkeypatch):
     ds = FakeAsyncDataSource()
     fetcher = AsyncPriceFetcher(ds, throttle=0)
 
+    saved: dict[tuple[str, str], pd.DataFrame] = {}
+
+    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+        saved[(ticker, interval)] = df.copy()
+
+    def fake_load_cached(ticker: str, interval: str):
+        return saved.get((ticker, interval)), None
+
+    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("ingest.async_fetch_prices.load_cached", fake_load_cached)
+
     class D(date):
         @classmethod
         def today(cls):
@@ -231,6 +256,74 @@ async def test_http_async_get_prices(monkeypatch):
     df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 3), "1d")
     assert list(df["Adj Close"]) == [1.0, 2.0, 3.0]
     assert df.index[0].year == 2020
+
+
+@pytest.mark.asyncio
+async def test_http_async_intraday_range_prevents_client_response_error(monkeypatch):
+    FAKE_JSON = {
+        "chart": {
+            "result": [
+                {
+                    "timestamp": [1577836800, 1577923200, 1578009600],
+                    "indicators": {"adjclose": [{"adjclose": [1.0, 2.0, 3.0]}]},
+                }
+            ]
+        }
+    }
+
+    captured: dict[str, dict[str, str | int]] = {}
+
+    class FakeResponse:
+        def __init__(self, params):
+            self._params = params
+
+        def raise_for_status(self):
+            if "range" not in self._params:
+                request_info = RequestInfo(
+                    URL("https://example.test"),
+                    "GET",
+                    headers=CIMultiDictProxy(CIMultiDict()),
+                    real_url=URL("https://example.test"),
+                )
+                raise aiohttp.ClientResponseError(
+                    request_info,
+                    (),
+                    status=422,
+                    message="Missing range parameter",
+                )
+
+        async def json(self):
+            return FAKE_JSON
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, params=None):
+            captured["last"] = params or {}
+            return FakeResponse(params or {})
+
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: FakeSession())
+
+    ds = YahooHTTPAsyncDataSource()
+    df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 3, 1), "60m")
+
+    assert not df.empty
+    params = captured.get("last", {})
+    assert "range" in params
+    assert "period1" not in params
 
 
 @pytest.mark.asyncio
