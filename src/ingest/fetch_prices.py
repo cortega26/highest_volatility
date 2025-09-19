@@ -11,6 +11,7 @@ import pandas as pd
 from src.cache.merge import merge_incremental
 from src.cache.store import load_cached, save_cache
 from src.config.interval_policy import full_backfill_start
+from highest_volatility.errors import DataSourceError
 from src.datasource.base import DataSource
 
 
@@ -54,10 +55,15 @@ class PriceFetcher:
             df_new.index = pd.to_datetime(df_new.index)
 
         df_new = df_new.sort_index()
+        df_new = df_new.dropna()
         merged = merge_incremental(cached_df, df_new) if cached_df is not None else df_new
+        merged = merged.dropna()
 
         if merged.empty:
-            raise ValueError("No data retrieved")
+            raise DataSourceError(
+                "No valid price data retrieved",
+                context={"ticker": ticker, "interval": interval},
+            )
 
         save_cache(ticker, interval, merged, self.source_name)
         return merged

@@ -59,6 +59,55 @@ def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_async_fetcher_drops_nan_rows_before_persist(monkeypatch, tmp_path):
+    monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "ingest.async_fetch_prices.full_backfill_start",
+        lambda interval, today=None: date(2020, 1, 1),
+    )
+    monkeypatch.setattr("ingest.async_fetch_prices.load_cached", lambda *_, **__: (None, None))
+
+    class NaNDataSource(AsyncDataSource):
+        async def get_prices(
+            self, ticker: str, start: date, end: date, interval: str
+        ) -> pd.DataFrame:
+            await asyncio.sleep(0)
+            idx = pd.date_range(start, periods=3, freq="D")
+            return pd.DataFrame(
+                {"Adj Close": [1.0, float("nan"), 2.0]},
+                index=idx,
+            )
+
+        async def validate_ticker(self, ticker: str) -> bool:
+            return True
+
+    saved: dict[str, pd.DataFrame] = {}
+
+    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+        saved["df"] = df.copy()
+
+    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return date(2020, 1, 3)
+
+    monkeypatch.setattr("ingest.async_fetch_prices.date", FrozenDate)
+
+    fetcher = AsyncPriceFetcher(NaNDataSource(), throttle=0)
+
+    result = await fetcher.fetch_one("XYZ", "1d")
+
+    assert not result.isna().any().any(), "result should not contain NaN rows"
+    assert len(result) == 2, "only rows with valid data should remain"
+    assert "df" in saved, "sanitised frame should be persisted"
+    persisted = saved["df"]
+    assert not persisted.isna().any().any(), "persisted frame should be clean"
+    pd.testing.assert_frame_equal(result, persisted)
+
+
+@pytest.mark.asyncio
 async def test_intraday_incremental_fetch_avoids_same_day_gap(monkeypatch):
     cached_idx = pd.to_datetime(
         ["2020-01-05 09:30", "2020-01-05 10:00"], format="%Y-%m-%d %H:%M"
