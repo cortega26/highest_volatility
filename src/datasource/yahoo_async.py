@@ -35,8 +35,18 @@ class YahooAsyncDataSource(AsyncDataSource):
         timestamps = result.get("timestamp", [])
         if not timestamps:
             raise ValueError("Empty data returned")
-        adj_close = result["indicators"]["adjclose"][0]["adjclose"]
-        df = pd.DataFrame({"Adj Close": adj_close}, index=pd.to_datetime(timestamps, unit="s"))
+        indicators = result.get("indicators", {})
+        series = None
+        adj = indicators.get("adjclose")
+        if isinstance(adj, list) and adj:
+            series = adj[0].get("adjclose")
+        if series is None:
+            quote = indicators.get("quote")
+            if isinstance(quote, list) and quote:
+                series = quote[0].get("close")
+        if not series:
+            raise ValueError("Missing adjclose/close in Yahoo response")
+        df = pd.DataFrame({"Adj Close": series}, index=pd.to_datetime(timestamps, unit="s"))
         return df.sort_index()
 
     async def validate_ticker(self, ticker: str) -> bool:
