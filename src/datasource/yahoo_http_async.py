@@ -63,19 +63,38 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
         if not timestamps:
             raise ValueError("Empty data returned")
         indicators = result.get("indicators", {})
-        series = None
-        # Prefer adjusted close when available
+        adj_values = None
+        quote_values = None
+
         adj = indicators.get("adjclose")
         if isinstance(adj, list) and adj:
-            series = adj[0].get("adjclose")
-        # Fallback to regular close from quote
-        if series is None:
-            quote = indicators.get("quote")
-            if isinstance(quote, list) and quote:
-                series = quote[0].get("close")
-        if not series:
+            adj_values = adj[0].get("adjclose")
+
+        quote = indicators.get("quote")
+        if isinstance(quote, list) and quote:
+            quote_values = quote[0].get("close")
+
+        if adj_values is None and quote_values is None:
             raise ValueError("Missing adjclose/close in Yahoo response")
-        df = pd.DataFrame({"Adj Close": series}, index=pd.to_datetime(timestamps, unit="s"))
+
+        def _value_at(values: list[Any] | None, idx: int) -> Any:
+            if values is None or idx >= len(values):
+                return None
+            return values[idx]
+
+        combined: list[Any] = []
+        for idx in range(len(timestamps)):
+            adj_value = _value_at(adj_values, idx)
+            if adj_value is not None:
+                combined.append(adj_value)
+                continue
+            close_value = _value_at(quote_values, idx)
+            combined.append(close_value)
+
+        if not any(value is not None for value in combined):
+            raise ValueError("Missing adjclose/close in Yahoo response")
+
+        df = pd.DataFrame({"Adj Close": combined}, index=pd.to_datetime(timestamps, unit="s"))
         return df.sort_index()
 
     async def validate_ticker(self, ticker: str) -> bool:

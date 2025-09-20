@@ -259,6 +259,63 @@ async def test_http_async_get_prices(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_http_async_get_prices_fill_adjclose_none(monkeypatch):
+    timestamps = [1577836800, 1577923200, 1578009600, 1578096000]
+    FAKE_JSON = {
+        "chart": {
+            "result": [
+                {
+                    "timestamp": timestamps,
+                    "indicators": {
+                        "adjclose": [{"adjclose": [1.0, None, 3.0, None]}],
+                        "quote": [{"close": [1.05, 2.05, 3.05, 4.05]}],
+                    },
+                }
+            ]
+        }
+    }
+
+    class FakeResponse:
+        def __init__(self, data):
+            self._data = data
+
+        async def json(self):
+            return self._data
+
+        def raise_for_status(self):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, params=None):
+            return FakeResponse(FAKE_JSON)
+
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: FakeSession())
+
+    ds = YahooHTTPAsyncDataSource()
+    df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 4), "1d")
+
+    expected = [1.0, 2.05, 3.0, 4.05]
+    assert list(df["Adj Close"]) == expected
+    assert not df["Adj Close"].isna().any()
+    pd.testing.assert_index_equal(df.index, pd.to_datetime(timestamps, unit="s"))
+
+
+@pytest.mark.asyncio
 async def test_http_async_intraday_range_prevents_client_response_error(monkeypatch):
     FAKE_JSON = {
         "chart": {
