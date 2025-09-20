@@ -83,13 +83,28 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
             return values[idx]
 
         combined: list[Any] = []
+        missing_indices: list[int] = []
         for idx in range(len(timestamps)):
             adj_value = _value_at(adj_values, idx)
+            close_value = _value_at(quote_values, idx)
+
             if adj_value is not None:
                 combined.append(adj_value)
-                continue
-            close_value = _value_at(quote_values, idx)
-            combined.append(close_value)
+            elif close_value is not None:
+                combined.append(close_value)
+            else:
+                missing_indices.append(idx)
+                combined.append(None)
+
+        if missing_indices:
+            missing_timestamps = [
+                pd.to_datetime(timestamps[i], unit="s", utc=True).isoformat()
+                for i in missing_indices
+            ]
+            raise ValueError(
+                "Missing adjclose/close data for ticker "
+                f"{ticker} at positions {list(missing_timestamps)}"
+            )
 
         if not any(value is not None for value in combined):
             raise ValueError("Missing adjclose/close in Yahoo response")
