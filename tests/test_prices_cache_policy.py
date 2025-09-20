@@ -94,3 +94,61 @@ def test_first_run_cache_uses_full_backfill_intraday(monkeypatch):
     cached = saved[("AAA", "1m")]
     assert cached.index.min().date() == expected_start
     assert not df.empty
+
+
+def test_incremental_intraday_fetch_extends_same_day(monkeypatch):
+    today = date(2020, 1, 10)
+    _setup_time(monkeypatch, today)
+
+    cached = pd.DataFrame(
+        {"Adj Close": [101.0, 102.0]},
+        index=pd.to_datetime([f"{today} 09:30", f"{today} 09:31"]),
+    )
+
+    starts: list[Any] = []
+    saved: dict[tuple[str, str], pd.DataFrame] = {}
+    full_calls: list[tuple[str, date | None]] = []
+
+    def fake_full_backfill_start(interval_arg: str, today_arg: date | None = None) -> date:
+        full_calls.append((interval_arg, today_arg))
+        assert today_arg is not None
+        return today_arg
+
+    def fake_load_cached(ticker: str, interval_arg: str) -> tuple[pd.DataFrame | None, Any]:
+        assert ticker == "AAA"
+        assert interval_arg == "1m"
+        return cached.copy(), None
+
+    def fake_save_cache(ticker: str, interval_arg: str, df: pd.DataFrame, source: str, **_: Any) -> None:
+        assert ticker == "AAA"
+        assert interval_arg == "1m"
+        saved[(ticker, interval_arg)] = df.copy()
+
+    def fake_download(*_, **kwargs: Any) -> pd.DataFrame:
+        starts.append(kwargs["start"])
+        idx = pd.to_datetime([f"{today} 09:30", f"{today} 09:31", f"{today} 09:32"])
+        return pd.DataFrame({"Adj Close": [111.0, 112.0, 113.0]}, index=idx)
+
+    monkeypatch.setattr(prices, "full_backfill_start", fake_full_backfill_start)
+    monkeypatch.setattr(prices, "load_cached", fake_load_cached)
+    monkeypatch.setattr(prices, "save_cache", fake_save_cache)
+    monkeypatch.setattr(prices.yf, "download", fake_download)
+
+    df = prices.download_price_history(
+        ["AAA"],
+        5,
+        matrix_mode="cache",
+        use_cache=True,
+        max_workers=1,
+        prepost=True,
+        interval="1m",
+    )
+
+    assert full_calls == []
+    assert starts == [today]
+    saved_frame = saved[("AAA", "1m")]
+    assert list(saved_frame.index) == list(pd.to_datetime([f"{today} 09:30", f"{today} 09:31", f"{today} 09:32"]))
+    assert saved_frame.loc[pd.Timestamp(f"{today} 09:32"), "Adj Close"] == 113.0
+    assert ("Adj Close", "AAA") in df.columns
+    result_series = df["Adj Close"]["AAA"]
+    assert pd.Timestamp(f"{today} 09:32") in result_series.index
