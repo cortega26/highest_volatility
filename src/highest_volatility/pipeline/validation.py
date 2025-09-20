@@ -24,7 +24,11 @@ from pandas.tseries.holiday import (
 
 
 class _FallbackNYSEHolidayCalendar(AbstractHolidayCalendar):
-    """Approximation of NYSE full-day holidays when ``pandas-market-calendars`` is unavailable."""
+    """Approximation of NYSE full-day holidays when ``pandas-market-calendars`` is unavailable.
+
+    The special-closure dates mirror historical NYSE shutdowns documented at
+    https://www.nyse.com/markets/hours-calendars/historical-holidays.
+    """
 
     rules = [
         Holiday("NewYearsDay", month=1, day=1, observance=nearest_workday),
@@ -43,6 +47,18 @@ class _FallbackNYSEHolidayCalendar(AbstractHolidayCalendar):
         USLaborDay,
         USThanksgivingDay,
         Holiday("ChristmasDay", month=12, day=25, observance=nearest_workday),
+        # One-off full-day closures observed by the NYSE since the mid-1980s.
+        Holiday("NYSESpecialClosure1985Sep27", year=1985, month=9, day=27),
+        Holiday("NYSESpecialClosure1994Apr27", year=1994, month=4, day=27),
+        Holiday("NYSESpecialClosure2001Sep11", year=2001, month=9, day=11),
+        Holiday("NYSESpecialClosure2001Sep12", year=2001, month=9, day=12),
+        Holiday("NYSESpecialClosure2001Sep13", year=2001, month=9, day=13),
+        Holiday("NYSESpecialClosure2001Sep14", year=2001, month=9, day=14),
+        Holiday("NYSESpecialClosure2004Jun11", year=2004, month=6, day=11),
+        Holiday("NYSESpecialClosure2007Jan02", year=2007, month=1, day=2),
+        Holiday("NYSESpecialClosure2012Oct29", year=2012, month=10, day=29),
+        Holiday("NYSESpecialClosure2012Oct30", year=2012, month=10, day=30),
+        Holiday("NYSESpecialClosure2018Dec05", year=2018, month=12, day=5),
     ]
 
 
