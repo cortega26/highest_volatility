@@ -143,8 +143,9 @@ def test_validate_cache_gap():
         version=1,
         updated_at="2020-01-01T00:00:00Z",
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as excinfo:
         validate_cache(df, manifest)
+    assert "2020-01-03" in str(excinfo.value)
 
 
 def test_validate_cache_intraday_extended_hours_gap_allowed():
@@ -182,8 +183,9 @@ def test_validate_cache_intraday_regular_hours_gap_detected():
         updated_at="2020-01-01T00:00:00Z",
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as excinfo:
         validate_cache(df, manifest)
+    assert "2024-01-02T09:31:00" in str(excinfo.value)
 
 
 def test_validate_cache_gap_detected_without_mcal(monkeypatch):
