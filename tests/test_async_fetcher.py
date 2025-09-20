@@ -316,6 +316,64 @@ async def test_http_async_get_prices_fill_adjclose_none(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_http_async_get_prices_raises_when_all_prices_missing(monkeypatch):
+    timestamps = [1577836800, 1577923200, 1578009600]
+    FAKE_JSON = {
+        "chart": {
+            "result": [
+                {
+                    "timestamp": timestamps,
+                    "indicators": {
+                        "adjclose": [{"adjclose": [1.0, None, 3.0]}],
+                        "quote": [{"close": [1.05, None, 3.05]}],
+                    },
+                }
+            ]
+        }
+    }
+
+    class FakeResponse:
+        def __init__(self, data):
+            self._data = data
+
+        async def json(self):
+            return self._data
+
+        def raise_for_status(self):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, params=None):
+            return FakeResponse(FAKE_JSON)
+
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: FakeSession())
+
+    ds = YahooHTTPAsyncDataSource()
+
+    with pytest.raises(ValueError) as excinfo:
+        await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 3), "1d")
+
+    message = str(excinfo.value)
+    assert "Missing adjclose/close data" in message
+    assert "2020-01-02T00:00:00+00:00" in message
+
+
+@pytest.mark.asyncio
 async def test_http_async_intraday_range_prevents_client_response_error(monkeypatch):
     FAKE_JSON = {
         "chart": {
