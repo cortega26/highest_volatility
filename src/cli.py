@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--interval",
         default="1d",
-        choices=["1m", "5m", "10m", "15m", "30m", "60m", "1h", "1d", "1wk", "1mo"],
+        choices=["1m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"],
     )
     parser.add_argument("--tickers", nargs="+", required=True)
     parser.add_argument("--force-refresh", action="store_true")
