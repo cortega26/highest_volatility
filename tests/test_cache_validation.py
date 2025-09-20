@@ -3,6 +3,7 @@ import pytest
 
 from src.cache import store
 from highest_volatility.pipeline import validate_cache
+from src.highest_volatility.pipeline import validation
 
 
 def _make_df():
@@ -63,6 +64,29 @@ def test_validate_cache_market_holiday_gap_allowed():
     validate_cache(df, manifest)
 
 
+def test_validate_cache_holiday_gap_allowed_without_mcal(monkeypatch):
+    monkeypatch.setattr(validation, "mcal", None)
+    validation._get_trading_calendar.cache_clear()
+
+    idx = pd.to_datetime(["2024-07-03", "2024-07-05"])
+    df = pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+    manifest = store.Manifest(
+        ticker="ABC",
+        interval="1d",
+        start=str(df.index[0].date()),
+        end=str(df.index[-1].date()),
+        rows=len(df),
+        source="test",
+        version=1,
+        updated_at="2020-01-01T00:00:00Z",
+    )
+
+    try:
+        validate_cache(df, manifest)
+    finally:
+        validation._get_trading_calendar.cache_clear()
+
+
 def test_validate_cache_nan():
     df = _make_df()
     df.iloc[1, 0] = None
@@ -86,6 +110,30 @@ def test_validate_cache_gap():
     )
     with pytest.raises(ValueError):
         validate_cache(df, manifest)
+
+
+def test_validate_cache_gap_detected_without_mcal(monkeypatch):
+    monkeypatch.setattr(validation, "mcal", None)
+    validation._get_trading_calendar.cache_clear()
+
+    idx = pd.to_datetime(["2024-07-03", "2024-07-08"])
+    df = pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+    manifest = store.Manifest(
+        ticker="ABC",
+        interval="1d",
+        start=str(df.index[0].date()),
+        end=str(df.index[-1].date()),
+        rows=len(df),
+        source="test",
+        version=1,
+        updated_at="2020-01-01T00:00:00Z",
+    )
+
+    try:
+        with pytest.raises(ValueError):
+            validate_cache(df, manifest)
+    finally:
+        validation._get_trading_calendar.cache_clear()
 
 
 def test_validate_cache_range_mismatch():

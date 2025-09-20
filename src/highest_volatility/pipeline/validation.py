@@ -10,6 +10,44 @@ try:  # pragma: no cover - optional dependency for trading calendars
 except ImportError:  # pragma: no cover - fallback to plain business days
     mcal = None
 
+from pandas.tseries.holiday import (
+    AbstractHolidayCalendar,
+    Holiday,
+    GoodFriday,
+    USLaborDay,
+    USMartinLutherKingJr,
+    USMemorialDay,
+    USPresidentsDay,
+    USThanksgivingDay,
+    nearest_workday,
+)
+
+
+class _FallbackNYSEHolidayCalendar(AbstractHolidayCalendar):
+    """Approximation of NYSE full-day holidays when ``pandas-market-calendars`` is unavailable."""
+
+    rules = [
+        Holiday("NewYearsDay", month=1, day=1, observance=nearest_workday),
+        USMartinLutherKingJr,
+        USPresidentsDay,
+        GoodFriday,
+        USMemorialDay,
+        Holiday(
+            "Juneteenth",
+            month=6,
+            day=19,
+            observance=nearest_workday,
+            start_date="2021-06-19",
+        ),
+        Holiday("IndependenceDay", month=7, day=4, observance=nearest_workday),
+        USLaborDay,
+        USThanksgivingDay,
+        Holiday("ChristmasDay", month=12, day=25, observance=nearest_workday),
+    ]
+
+
+_FALLBACK_CALENDAR = _FallbackNYSEHolidayCalendar()
+
 if TYPE_CHECKING:  # pragma: no cover - imported for type hints only
     from src.cache.store import Manifest
 
@@ -63,8 +101,15 @@ def _expected_trading_dates(start: pd.Timestamp, end: pd.Timestamp) -> pd.Index:
 
     calendar = _get_trading_calendar()
     if calendar is None:
-        expected = pd.bdate_range(start.normalize(), end.normalize(), tz=start.tz)
-        return pd.Index(expected.normalize().date)
+        holidays = _FALLBACK_CALENDAR.holidays(
+            start=start.normalize(),
+            end=end.normalize(),
+        )
+        holidays = set(pd.DatetimeIndex(holidays).date)
+        sessions = pd.bdate_range(start.normalize(), end.normalize(), tz=start.tz)
+        return pd.Index(
+            [session.normalize().date() for session in sessions if session.date() not in holidays]
+        )
 
     valid_sessions = calendar.valid_days(start.date(), end.date())
     valid_sessions = pd.DatetimeIndex(valid_sessions)
