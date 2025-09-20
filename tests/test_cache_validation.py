@@ -147,6 +147,45 @@ def test_validate_cache_gap():
         validate_cache(df, manifest)
 
 
+def test_validate_cache_intraday_extended_hours_gap_allowed():
+    validation._get_trading_calendar.cache_clear()
+
+    idx = pd.to_datetime(["2024-01-02 16:00", "2024-01-02 16:05"])
+    df = pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+    manifest = store.Manifest(
+        ticker="ABC",
+        interval="1m",
+        start=str(df.index[0].date()),
+        end=str(df.index[-1].date()),
+        rows=len(df),
+        source="test",
+        version=1,
+        updated_at="2020-01-01T00:00:00Z",
+    )
+
+    validate_cache(df, manifest)
+
+
+def test_validate_cache_intraday_regular_hours_gap_detected():
+    validation._get_trading_calendar.cache_clear()
+
+    idx = pd.to_datetime(["2024-01-02 09:30", "2024-01-02 09:32"])
+    df = pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+    manifest = store.Manifest(
+        ticker="ABC",
+        interval="1m",
+        start=str(df.index[0].date()),
+        end=str(df.index[-1].date()),
+        rows=len(df),
+        source="test",
+        version=1,
+        updated_at="2020-01-01T00:00:00Z",
+    )
+
+    with pytest.raises(ValueError):
+        validate_cache(df, manifest)
+
+
 def test_validate_cache_gap_detected_without_mcal(monkeypatch):
     monkeypatch.setattr(validation, "mcal", None)
     validation._get_trading_calendar.cache_clear()

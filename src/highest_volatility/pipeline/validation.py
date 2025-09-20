@@ -1,9 +1,10 @@
 """Validation utilities for cached price data."""
 
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import pandas as pd
+from pandas.tseries.frequencies import to_offset
 
 try:  # pragma: no cover - optional dependency for trading calendars
     import pandas_market_calendars as mcal
@@ -98,6 +99,86 @@ def _is_daily_interval(interval: str) -> bool:
     return interval.lower().endswith("d")
 
 
+def _infer_timedelta(freq: Optional[str], interval: str) -> Optional[pd.Timedelta]:
+    """Return the expected spacing between rows for the provided interval."""
+
+    if freq:
+        try:
+            offset = to_offset(freq)
+        except ValueError:
+            offset = None
+        else:
+            nanos = getattr(offset, "nanos", None)
+            if nanos:
+                return pd.Timedelta(nanos, unit="ns")
+    return DELTA_MAP.get(interval)
+
+
+def _session_bounds(
+    ts: pd.Timestamp,
+    calendar,
+) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
+    """Return the session open/close for the provided timestamp's trading day."""
+
+    session_date = ts.date()
+    tz = ts.tz
+
+    if calendar is not None:
+        schedule = calendar.schedule(start_date=session_date, end_date=session_date)
+        if schedule.empty:
+            return None
+        open_ts = schedule.iloc[0]["market_open"]
+        close_ts = schedule.iloc[0]["market_close"]
+        if tz is not None:
+            open_ts = open_ts.tz_convert(tz)
+            close_ts = close_ts.tz_convert(tz)
+        else:
+            session_tz = getattr(calendar, "tz", None)
+            if session_tz is not None:
+                open_ts = open_ts.tz_convert(session_tz)
+                close_ts = close_ts.tz_convert(session_tz)
+            open_ts = open_ts.tz_localize(None)
+            close_ts = close_ts.tz_localize(None)
+        return open_ts, close_ts
+
+    open_time = pd.Timestamp(session_date).replace(hour=9, minute=30)
+    close_time = pd.Timestamp(session_date).replace(hour=16, minute=0)
+    if tz is not None:
+        open_time = open_time.tz_localize(tz)
+        close_time = close_time.tz_localize(tz)
+    return open_time, close_time
+
+
+def _validate_intraday_index(
+    index: pd.DatetimeIndex,
+    *,
+    freq: Optional[str],
+    interval: str,
+) -> None:
+    """Validate that intraday data has no gaps during regular trading hours."""
+
+    target_delta = _infer_timedelta(freq, interval)
+    if target_delta is None or index.empty:
+        return
+
+    calendar = _get_trading_calendar()
+    normalized = index.normalize()
+    for session_day in pd.unique(normalized):
+        mask = normalized == session_day
+        day_index = index[mask]
+        session_reference = day_index[0]
+        bounds = _session_bounds(session_reference, calendar)
+        if bounds is None:
+            continue
+        session_open, session_close = bounds
+        in_hours = day_index[(day_index >= session_open) & (day_index <= session_close)]
+        if len(in_hours) <= 1:
+            continue
+        deltas = in_hours.to_series().diff().dropna()
+        if not deltas.le(target_delta).all():
+            raise ValueError("Gap detected in index")
+
+
 @lru_cache(maxsize=1)
 def _get_trading_calendar():
     """Return the XNYS trading calendar if available, otherwise ``None``."""
@@ -183,12 +264,15 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
         freq = None
     freq = freq or FREQ_MAP.get(manifest.interval)
     if freq:
-        if (manifest.interval.endswith("m") and manifest.interval != "1mo") or freq.endswith("T") or freq.endswith("min"):
-            for _, group in df.groupby(df.index.date):
-                expected = pd.date_range(group.index.min(), group.index.max(), freq=freq)
-                if len(expected) != len(group):
-                    raise ValueError("Gap detected in index")
-        elif _is_daily_interval(manifest.interval) or freq.upper() in {"B", "C"} or freq.upper().endswith("D"):
+        normalized_freq = freq.upper()
+        if (
+            manifest.interval.lower().endswith(("m", "h"))
+            or freq.endswith("T")
+            or freq.endswith("min")
+            or normalized_freq.endswith("H")
+        ):
+            _validate_intraday_index(df.index, freq=freq, interval=manifest.interval)
+        elif _is_daily_interval(manifest.interval) or normalized_freq in {"B", "C"} or normalized_freq.endswith("D"):
             _validate_business_day_index(df.index)
         else:
             expected = pd.date_range(df.index.min(), df.index.max(), freq=freq)
@@ -197,6 +281,8 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
     else:
         if _is_daily_interval(manifest.interval):
             _validate_business_day_index(df.index)
+        elif manifest.interval.lower().endswith(("m", "h")):
+            _validate_intraday_index(df.index, freq=None, interval=manifest.interval)
         else:
             delta = DELTA_MAP.get(manifest.interval)
             if delta is not None and not df.index.to_series().diff().dropna().le(delta).all():
