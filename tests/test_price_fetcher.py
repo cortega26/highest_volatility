@@ -30,7 +30,9 @@ def test_incremental_and_force_refresh(tmp_path, monkeypatch):
 
     saved: dict[tuple[str, str], pd.DataFrame] = {}
 
-    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+    def fake_save_cache(
+        ticker: str, interval: str, df: pd.DataFrame, source: str, **kwargs
+    ) -> None:
         saved[(ticker, interval)] = df.copy()
 
     def fake_load_cached(ticker: str, interval: str):

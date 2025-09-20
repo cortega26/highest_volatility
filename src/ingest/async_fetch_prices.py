@@ -87,8 +87,14 @@ class AsyncPriceFetcher:
         if not isinstance(df_new.index, pd.DatetimeIndex):
             df_new.index = pd.to_datetime(df_new.index)
 
+        dropped_rows = df_new.attrs.get("dropped_yahoo_rows")
+        if dropped_rows is not None:
+            dropped_rows = list(dropped_rows)
+
         df_new = df_new.sort_index()
         df_new = df_new.dropna()
+        if dropped_rows is not None:
+            df_new.attrs["dropped_yahoo_rows"] = dropped_rows
         try:
             merged = (
                 merge_incremental(cached_df, df_new) if cached_df is not None else df_new
@@ -114,7 +120,14 @@ class AsyncPriceFetcher:
             raise error
 
         try:
-            await asyncio.to_thread(save_cache, ticker, interval, merged, self.source_name)
+            await asyncio.to_thread(
+                save_cache,
+                ticker,
+                interval,
+                merged,
+                self.source_name,
+                allowed_gaps=dropped_rows,
+            )
         except Exception as exc:
             error = wrap_error(
                 exc,

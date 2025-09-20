@@ -2,7 +2,9 @@
 
 Sparse gaps in the upstream payload are tolerated by dropping individual
 timestamps where neither ``adjclose`` nor ``close`` is provided. Completely
-missing price histories still raise ``ValueError``.
+missing price histories still raise ``ValueError``. Dropped timestamps are
+reported through ``df.attrs["dropped_yahoo_rows"]`` so downstream cache
+validators can exempt them.
 """
 
 from __future__ import annotations
@@ -148,7 +150,9 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
                 f"{ticker}: {missing_iso}"
             )
 
-        return df.sort_index()
+        df = df.sort_index()
+        df.attrs["dropped_yahoo_rows"] = missing_timestamps
+        return df
 
     async def validate_ticker(self, ticker: str) -> bool:
         try:

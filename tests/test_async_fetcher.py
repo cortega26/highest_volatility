@@ -40,7 +40,9 @@ def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
 
     saved: dict[tuple[str, str], pd.DataFrame] = {}
 
-    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+    def fake_save_cache(
+        ticker: str, interval: str, df: pd.DataFrame, source: str, **kwargs
+    ) -> None:
         saved[(ticker, interval)] = df.copy()
 
     def fake_load_cached(ticker: str, interval: str):
@@ -97,7 +99,9 @@ async def test_async_fetcher_drops_nan_rows_before_persist(monkeypatch, tmp_path
 
     saved: dict[str, pd.DataFrame] = {}
 
-    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+    def fake_save_cache(
+        ticker: str, interval: str, df: pd.DataFrame, source: str, **kwargs
+    ) -> None:
         saved["df"] = df.copy()
 
     monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
@@ -156,7 +160,9 @@ async def test_intraday_incremental_fetch_avoids_same_day_gap(monkeypatch):
 
     saved: dict[str, pd.DataFrame] = {}
 
-    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+    def fake_save_cache(
+        ticker: str, interval: str, df: pd.DataFrame, source: str, **kwargs
+    ) -> None:
         saved["df"] = df.copy()
 
     monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
@@ -188,7 +194,9 @@ def test_fetch_many_async(tmp_path, monkeypatch):
 
     saved: dict[tuple[str, str], pd.DataFrame] = {}
 
-    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str) -> None:
+    def fake_save_cache(
+        ticker: str, interval: str, df: pd.DataFrame, source: str, **kwargs
+    ) -> None:
         saved[(ticker, interval)] = df.copy()
 
     def fake_load_cached(ticker: str, interval: str):
