@@ -23,6 +23,10 @@ from pandas.tseries.holiday import (
     nearest_workday,
 )
 
+from highest_volatility.logging import get_logger
+
+
+logger = get_logger(__name__, component="cache_validation")
 
 class _FallbackNYSEHolidayCalendar(AbstractHolidayCalendar):
     """Approximation of NYSE full-day holidays when ``pandas-market-calendars`` is unavailable.
@@ -154,6 +158,7 @@ def _validate_intraday_index(
     *,
     freq: Optional[str],
     interval: str,
+    ticker: Optional[str] = None,
 ) -> None:
     """Validate that intraday data has no gaps during regular trading hours."""
 
@@ -163,6 +168,7 @@ def _validate_intraday_index(
 
     calendar = _get_trading_calendar()
     normalized = index.normalize()
+    missing_timestamps: list[pd.Timestamp] = []
     for session_day in pd.unique(normalized):
         mask = normalized == session_day
         day_index = index[mask]
@@ -174,9 +180,30 @@ def _validate_intraday_index(
         in_hours = day_index[(day_index >= session_open) & (day_index <= session_close)]
         if len(in_hours) <= 1:
             continue
-        deltas = in_hours.to_series().diff().dropna()
-        if not deltas.le(target_delta).all():
-            raise ValueError("Gap detected in index")
+        for previous, current in zip(in_hours[:-1], in_hours[1:]):
+            delta = current - previous
+            if delta > target_delta:
+                gap_start = previous + target_delta
+                gap_end = current - target_delta
+                if gap_start <= gap_end:
+                    missing_range = pd.date_range(gap_start, gap_end, freq=target_delta)
+                    missing_timestamps.extend(missing_range)
+                else:
+                    missing_timestamps.append(gap_start)
+    if missing_timestamps:
+        ordered_missing = sorted(set(missing_timestamps))
+        missing_formatted = [ts.isoformat() for ts in ordered_missing]
+        context = {k: v for k, v in {"ticker": ticker, "interval": interval}.items() if v}
+        logger.error(
+            {
+                "event": "intraday_gap_detected",
+                "missing_timestamps": missing_formatted,
+            },
+            context=context or None,
+        )
+        raise ValueError(
+            f"Gap detected in index: missing intraday timestamps {missing_formatted}"
+        )
 
 
 @lru_cache(maxsize=1)
@@ -213,7 +240,12 @@ def _expected_trading_dates(start: pd.Timestamp, end: pd.Timestamp) -> pd.Index:
     return pd.Index([session.date() for session in valid_sessions])
 
 
-def _validate_business_day_index(index: pd.DatetimeIndex) -> None:
+def _validate_business_day_index(
+    index: pd.DatetimeIndex,
+    *,
+    ticker: Optional[str] = None,
+    interval: Optional[str] = None,
+) -> None:
     """Ensure an index covers every observed trading day between endpoints."""
 
     if index.empty:
@@ -225,7 +257,18 @@ def _validate_business_day_index(index: pd.DatetimeIndex) -> None:
     observed_set = set(observed)
     missing_expected = [session for session in expected if session not in observed_set]
     if missing_expected:
-        raise ValueError("Gap detected in index")
+        missing_formatted = [str(date) for date in missing_expected]
+        context = {k: v for k, v in {"ticker": ticker, "interval": interval}.items() if v}
+        logger.error(
+            {
+                "event": "business_day_gap_detected",
+                "missing_trading_dates": missing_formatted,
+            },
+            context=context or None,
+        )
+        raise ValueError(
+            f"Gap detected in index: missing trading dates {missing_formatted}"
+        )
 
 
 def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
@@ -271,19 +314,38 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
             or freq.endswith("min")
             or normalized_freq.endswith("H")
         ):
-            _validate_intraday_index(df.index, freq=freq, interval=manifest.interval)
+            _validate_intraday_index(
+                df.index,
+                freq=freq,
+                interval=manifest.interval,
+                ticker=getattr(manifest, "ticker", None),
+            )
         elif _is_daily_interval(manifest.interval) or normalized_freq in {"B", "C"} or normalized_freq.endswith("D"):
-            _validate_business_day_index(df.index)
+            _validate_business_day_index(
+                df.index,
+                ticker=getattr(manifest, "ticker", None),
+                interval=manifest.interval,
+            )
         else:
             expected = pd.date_range(df.index.min(), df.index.max(), freq=freq)
             if len(expected) != len(df):
                 raise ValueError("Gap detected in index")
     else:
         if _is_daily_interval(manifest.interval):
-            _validate_business_day_index(df.index)
+            _validate_business_day_index(
+                df.index,
+                ticker=getattr(manifest, "ticker", None),
+                interval=manifest.interval,
+            )
         elif manifest.interval.lower().endswith(("m", "h")):
-            _validate_intraday_index(df.index, freq=None, interval=manifest.interval)
+            _validate_intraday_index(
+                df.index,
+                freq=None,
+                interval=manifest.interval,
+                ticker=getattr(manifest, "ticker", None),
+            )
         else:
             delta = DELTA_MAP.get(manifest.interval)
             if delta is not None and not df.index.to_series().diff().dropna().le(delta).all():
                 raise ValueError("Gap detected in index")
+
