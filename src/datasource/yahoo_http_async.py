@@ -1,12 +1,20 @@
-"""Asynchronous Yahoo Finance data source using direct HTTP requests."""
+"""Asynchronous Yahoo Finance data source using direct HTTP requests.
+
+Sparse gaps in the upstream payload are tolerated by dropping individual
+timestamps where neither ``adjclose`` nor ``close`` is provided. Completely
+missing price histories still raise ``ValueError``.
+"""
 
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import logging
 from typing import Any, Dict
 
 import aiohttp
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from .base_async import AsyncDataSource
 
@@ -83,6 +91,7 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
             return values[idx]
 
         combined: list[Any] = []
+        retained_timestamps: list[int] = []
         missing_indices: list[int] = []
         for idx in range(len(timestamps)):
             adj_value = _value_at(adj_values, idx)
@@ -90,29 +99,36 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
 
             if adj_value is not None:
                 combined.append(adj_value)
+                retained_timestamps.append(timestamps[idx])
                 continue
 
             if close_value is not None:
                 combined.append(close_value)
+                retained_timestamps.append(timestamps[idx])
                 continue
 
             missing_indices.append(idx)
 
-        if missing_indices:
-            missing_timestamps = [
-                pd.to_datetime(timestamps[i], unit="s", utc=True).isoformat()
-                for i in missing_indices
-            ]
+        missing_timestamps = [
+            pd.to_datetime(timestamps[i], unit="s", utc=True).isoformat()
+            for i in missing_indices
+        ]
+        if missing_timestamps:
+            logger.warning(
+                "Dropped %d missing Yahoo price rows for ticker %s: %s",
+                len(missing_timestamps),
+                ticker,
+                missing_timestamps,
+            )
+
+        if not combined:
             raise ValueError(
                 "Missing adjclose/close data for ticker "
                 f"{ticker} at timestamps {missing_timestamps}"
             )
 
-        if not combined or len(combined) != len(timestamps):
-            raise ValueError("Missing adjclose/close in Yahoo response")
-
         df = pd.DataFrame(
-            {"Adj Close": combined}, index=pd.to_datetime(timestamps, unit="s")
+            {"Adj Close": combined}, index=pd.to_datetime(retained_timestamps, unit="s")
         )
         if df.isna().any().any():
             def _to_iso(ts: pd.Timestamp) -> str:
