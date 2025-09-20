@@ -90,11 +90,13 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
 
             if adj_value is not None:
                 combined.append(adj_value)
-            elif close_value is not None:
+                continue
+
+            if close_value is not None:
                 combined.append(close_value)
-            else:
-                missing_indices.append(idx)
-                combined.append(None)
+                continue
+
+            missing_indices.append(idx)
 
         if missing_indices:
             missing_timestamps = [
@@ -103,13 +105,33 @@ class YahooHTTPAsyncDataSource(AsyncDataSource):
             ]
             raise ValueError(
                 "Missing adjclose/close data for ticker "
-                f"{ticker} at positions {list(missing_timestamps)}"
+                f"{ticker} at timestamps {missing_timestamps}"
             )
 
-        if not any(value is not None for value in combined):
+        if not combined or len(combined) != len(timestamps):
             raise ValueError("Missing adjclose/close in Yahoo response")
 
-        df = pd.DataFrame({"Adj Close": combined}, index=pd.to_datetime(timestamps, unit="s"))
+        df = pd.DataFrame(
+            {"Adj Close": combined}, index=pd.to_datetime(timestamps, unit="s")
+        )
+        if df.isna().any().any():
+            def _to_iso(ts: pd.Timestamp) -> str:
+                ts = pd.Timestamp(ts)
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize("UTC")
+                else:
+                    ts = ts.tz_convert("UTC")
+                return ts.isoformat()
+
+            missing_iso = [
+                _to_iso(ts)
+                for ts in df.index[df.isna().any(axis=1)]
+            ]
+            raise ValueError(
+                "Unexpected NaN values present after combining adjclose/close for ticker "
+                f"{ticker}: {missing_iso}"
+            )
+
         return df.sort_index()
 
     async def validate_ticker(self, ticker: str) -> bool:
