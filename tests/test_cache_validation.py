@@ -45,6 +45,24 @@ def test_validate_cache_weekend_gap_allowed():
     validate_cache(df, manifest)
 
 
+def test_validate_cache_market_holiday_gap_allowed():
+    pytest.importorskip("pandas_market_calendars")
+
+    idx = pd.to_datetime(["2024-07-03", "2024-07-05"])
+    df = pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+    manifest = store.Manifest(
+        ticker="ABC",
+        interval="1d",
+        start=str(df.index[0].date()),
+        end=str(df.index[-1].date()),
+        rows=len(df),
+        source="test",
+        version=1,
+        updated_at="2020-01-01T00:00:00Z",
+    )
+    validate_cache(df, manifest)
+
+
 def test_validate_cache_nan():
     df = _make_df()
     df.iloc[1, 0] = None
