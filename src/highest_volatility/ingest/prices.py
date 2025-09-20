@@ -200,6 +200,18 @@ def download_price_history(
     end_date = date.today()
     start_date = end_date - timedelta(days=lookback_days * 2)
 
+    def _next_fetch_start(cached_df: Optional[pd.DataFrame]) -> date:
+        if cached_df is None or cached_df.empty:
+            return full_backfill_start(interval, today=end_date)
+        last = cached_df.index[-1]
+        if not isinstance(last, pd.Timestamp):
+            last = pd.to_datetime(last)
+        last_date = last.date()
+        interval_key = interval.lower()
+        if interval_key.endswith(("m", "h")):
+            return last_date
+        return last_date + timedelta(days=1)
+
     # First pass: detect up-to-date tickers and prepare a plan for those needing fetch
     to_fetch: List[str] = []
     cache_map: Dict[str, Optional[pd.DataFrame]] = {}
@@ -211,31 +223,25 @@ def download_price_history(
             except Exception:
                 cached_df = None
         cache_map[t] = cached_df
+        if force_refresh:
+            to_fetch.append(t)
+            continue
         if cached_df is None or cached_df.empty:
             to_fetch.append(t)
             continue
-        # If cache already covers up to end_date (or later), reuse without network
-        last = cached_df.index[-1]
-        if not isinstance(last, pd.Timestamp):
-            last = pd.to_datetime(last)
-        if last.date() >= end_date:
-            frames[t] = cached_df
-        else:
-            to_fetch.append(t)
+        fetch_start = _next_fetch_start(cached_df)
+        if fetch_start > end_date:
+            if cached_df is not None and not cached_df.empty:
+                frames[t] = cached_df
+            continue
+        to_fetch.append(t)
 
     # Parallel fetch for missing/incremental updates
     def _fetch_and_merge(t: str) -> Optional[pd.DataFrame]:
         cached_df = cache_map.get(t)
-        if cached_df is None or cached_df.empty:
-            fetch_start = full_backfill_start(interval, today=end_date)
-        else:
-            last = cached_df.index[-1]
-            if not isinstance(last, pd.Timestamp):
-                last = pd.to_datetime(last)
-            fetch_start = (last + pd.Timedelta(days=1)).date()
-            if fetch_start > end_date:
-                # Already up to date
-                return cached_df
+        fetch_start = _next_fetch_start(cached_df)
+        if fetch_start > end_date:
+            return cached_df
         df_new = download_with_retry(
             t,
             start=fetch_start,
