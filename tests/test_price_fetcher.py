@@ -6,6 +6,7 @@ import pandas as pd
 from src.cache import store
 from datasource.base import DataSource
 from ingest.fetch_prices import PriceFetcher
+from src.config.interval_policy import full_backfill_start
 
 
 class FakeDataSource(DataSource):
@@ -62,3 +63,40 @@ def test_incremental_and_force_refresh(tmp_path, monkeypatch):
 
     fetcher.fetch_one("ABC", "1d", force_refresh=True)
     assert ds.calls[2][1] == date(2020, 1, 1)
+
+
+def test_price_fetcher_uses_60m_alias(monkeypatch):
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return date(2024, 1, 1)
+
+    monkeypatch.setattr("ingest.fetch_prices.date", FrozenDate)
+    monkeypatch.setattr("src.config.interval_policy.date", FrozenDate)
+
+    class RecordingDataSource(DataSource):
+        def __init__(self):
+            self.calls: List[tuple[str, date, date, str]] = []
+
+        def get_prices(self, ticker: str, start: date, end: date, interval: str) -> pd.DataFrame:
+            self.calls.append((ticker, start, end, interval))
+            idx = pd.date_range(start, periods=1, freq="h")
+            return pd.DataFrame({"Adj Close": [1.0]}, index=idx)
+
+        def validate_ticker(self, ticker: str) -> bool:
+            return True
+
+    monkeypatch.setattr("ingest.fetch_prices.save_cache", lambda *_, **__: None)
+
+    datasource = RecordingDataSource()
+    fetcher = PriceFetcher(datasource, throttle=0)
+
+    result = fetcher.fetch_one("XYZ", "60m", force_refresh=True)
+
+    assert datasource.calls, "datasource should receive the request"
+    _, start_arg, end_arg, interval_arg = datasource.calls[0]
+    expected_start = full_backfill_start("1h", today=FrozenDate.today())
+    assert start_arg == expected_start
+    assert end_arg == FrozenDate.today()
+    assert interval_arg == "60m"
+    assert not result.empty

@@ -2,6 +2,7 @@ import pandas as pd
 
 from highest_volatility.ingest import prices
 from datetime import date, datetime
+from src.config.interval_policy import full_backfill_start
 
 
 class FakeAsyncDS:
@@ -41,4 +42,48 @@ def test_download_price_history_async(monkeypatch):
     assert set(df.columns.get_level_values(1)) == {"AAA", "BBB"}
     assert "Adj Close" in df.columns.get_level_values(0)
     assert all(call[1] == date(2019, 12, 30) for call in fake_ds.calls)
+
+
+def test_download_price_history_async_uses_60m_alias(monkeypatch):
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return date(2024, 1, 1)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def utcnow(cls):
+            return datetime(2024, 1, 1)
+
+    class IntradayFakeAsyncDS:
+        def __init__(self):
+            self.calls: list[tuple[str, date, date, str]] = []
+
+        async def get_prices(self, ticker, start, end, interval):
+            self.calls.append((ticker, start, end, interval))
+            idx = pd.date_range(start, periods=2, freq="h")
+            return pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+
+    fake_ds = IntradayFakeAsyncDS()
+
+    monkeypatch.setattr(prices, "date", FrozenDate)
+    monkeypatch.setattr(prices, "datetime", FrozenDateTime)
+    monkeypatch.setattr("src.config.interval_policy.date", FrozenDate)
+    monkeypatch.setattr(prices, "YahooAsyncDataSource", lambda: fake_ds)
+
+    df = prices.download_price_history(
+        ["AAA"],
+        400,
+        matrix_mode="async",
+        use_cache=False,
+        interval="60m",
+    )
+
+    assert fake_ds.calls, "datasource should be invoked"
+    _, start_arg, end_arg, interval_arg = fake_ds.calls[0]
+    expected_start = full_backfill_start("1h", today=FrozenDate.today())
+    assert start_arg == expected_start
+    assert end_arg == FrozenDate.today()
+    assert interval_arg == "60m"
+    assert not df.empty
 
