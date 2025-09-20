@@ -54,8 +54,14 @@ class PriceFetcher:
         if not isinstance(df_new.index, pd.DatetimeIndex):
             df_new.index = pd.to_datetime(df_new.index)
 
+        dropped_rows = df_new.attrs.get("dropped_yahoo_rows")
+        if dropped_rows is not None:
+            dropped_rows = list(dropped_rows)
+
         df_new = df_new.sort_index()
         df_new = df_new.dropna()
+        if dropped_rows is not None:
+            df_new.attrs["dropped_yahoo_rows"] = dropped_rows
         merged = merge_incremental(cached_df, df_new) if cached_df is not None else df_new
         merged = merged.dropna()
 
@@ -65,5 +71,11 @@ class PriceFetcher:
                 context={"ticker": ticker, "interval": interval},
             )
 
-        save_cache(ticker, interval, merged, self.source_name)
+        save_cache(
+            ticker,
+            interval,
+            merged,
+            self.source_name,
+            allowed_gaps=dropped_rows,
+        )
         return merged

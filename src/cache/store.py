@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Iterable, Optional, Tuple
 import json
 import os
 from io import BytesIO
@@ -94,6 +94,7 @@ def save_cache(
     source: str,
     *,
     validate: bool = True,
+    allowed_gaps: Optional[Iterable[str | pd.Timestamp]] = None,
 ) -> Manifest:
     """Persist ``df`` and manifest to disk."""
 
@@ -119,7 +120,7 @@ def save_cache(
         datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     )
     if validate:
-        validate_cache(df, manifest)
+        validate_cache(df, manifest, allowed_gaps=allowed_gaps)
 
     parquet_path, manifest_path = _paths(ticker, interval)
     parquet_path.parent.mkdir(parents=True, exist_ok=True)

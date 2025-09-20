@@ -1,7 +1,15 @@
-"""Validation utilities for cached price data."""
+"""Validation utilities for cached price data.
+
+Sparse intraday gaps approved by a datasource can be passed via the
+``allowed_gaps`` parameter when calling :func:`validate_cache`. Any detected
+missing bars that match these timestamps are ignored during validation while
+unexpected holes still trigger errors.
+"""
+
+from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import Iterable, TYPE_CHECKING, Optional, Set, Tuple
 
 import pandas as pd
 from pandas.tseries.frequencies import to_offset
@@ -153,12 +161,24 @@ def _session_bounds(
     return open_time, close_time
 
 
+def _normalize_timestamp_utc(value: str | pd.Timestamp) -> pd.Timestamp:
+    """Return a timezone-aware UTC timestamp for comparisons."""
+
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    else:
+        ts = ts.tz_convert("UTC")
+    return ts
+
+
 def _validate_intraday_index(
     index: pd.DatetimeIndex,
     *,
     freq: Optional[str],
     interval: str,
     ticker: Optional[str] = None,
+    allowed_gaps: Optional[Set[pd.Timestamp]] = None,
 ) -> None:
     """Validate that intraday data has no gaps during regular trading hours."""
 
@@ -191,8 +211,16 @@ def _validate_intraday_index(
                 else:
                     missing_timestamps.append(gap_start)
     if missing_timestamps:
-        ordered_missing = sorted(set(missing_timestamps))
-        missing_formatted = [ts.isoformat() for ts in ordered_missing]
+        normalized_missing = sorted(
+            {_normalize_timestamp_utc(ts) for ts in missing_timestamps}
+        )
+        if allowed_gaps:
+            normalized_missing = [
+                ts for ts in normalized_missing if ts not in allowed_gaps
+            ]
+        if not normalized_missing:
+            return
+        missing_formatted = [ts.isoformat() for ts in normalized_missing]
         context = {k: v for k, v in {"ticker": ticker, "interval": interval}.items() if v}
         logger.error(
             {
@@ -271,7 +299,12 @@ def _validate_business_day_index(
         )
 
 
-def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
+def validate_cache(
+    df: pd.DataFrame,
+    manifest: "Manifest",
+    *,
+    allowed_gaps: Optional[Iterable[str | pd.Timestamp]] = None,
+) -> None:
     """Validate cached DataFrame against its manifest.
 
     Parameters
@@ -280,6 +313,9 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
         Price data to validate.
     manifest:
         Manifest describing the cached data.
+    allowed_gaps:
+        Optional iterable of timestamps sanctioned by the datasource. Any
+        detected intraday gaps that match these values will be ignored.
 
     Raises
     ------
@@ -301,6 +337,16 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
     if len(df) != manifest.rows:
         raise ValueError("Row count mismatch with manifest")
 
+    allowed_gap_set: Optional[Set[pd.Timestamp]] = None
+    if allowed_gaps:
+        normalized: Set[pd.Timestamp] = set()
+        for gap in allowed_gaps:
+            if gap is None:
+                continue
+            normalized.add(_normalize_timestamp_utc(gap))
+        if normalized:
+            allowed_gap_set = normalized
+
     try:
         freq = pd.infer_freq(df.index) if len(df.index) >= 3 else None
     except ValueError:
@@ -319,6 +365,7 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
                 freq=freq,
                 interval=manifest.interval,
                 ticker=getattr(manifest, "ticker", None),
+                allowed_gaps=allowed_gap_set,
             )
         elif _is_daily_interval(manifest.interval) or normalized_freq in {"B", "C"} or normalized_freq.endswith("D"):
             _validate_business_day_index(
@@ -343,6 +390,7 @@ def validate_cache(df: pd.DataFrame, manifest: "Manifest") -> None:
                 freq=None,
                 interval=manifest.interval,
                 ticker=getattr(manifest, "ticker", None),
+                allowed_gaps=allowed_gap_set,
             )
         else:
             delta = DELTA_MAP.get(manifest.interval)

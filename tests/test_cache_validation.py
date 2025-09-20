@@ -188,6 +188,27 @@ def test_validate_cache_intraday_regular_hours_gap_detected():
     assert "2024-01-02T09:31:00" in str(excinfo.value)
 
 
+def test_save_cache_respects_allowed_gaps(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
+    validation._get_trading_calendar.cache_clear()
+
+    idx = pd.to_datetime(["2024-01-02 09:30", "2024-01-02 10:30"])
+    df = pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+
+    with pytest.raises(ValueError):
+        store.save_cache("XYZ", "30m", df, "test")
+
+    allowed_gap = [(idx[0] + pd.Timedelta(minutes=30)).isoformat()]
+
+    try:
+        store.save_cache("XYZ", "30m", df, "test", allowed_gaps=allowed_gap)
+    finally:
+        validation._get_trading_calendar.cache_clear()
+
+    parquet_path = tmp_path / "30m" / "XYZ.parquet"
+    assert parquet_path.exists()
+
+
 def test_validate_cache_gap_detected_without_mcal(monkeypatch):
     monkeypatch.setattr(validation, "mcal", None)
     validation._get_trading_calendar.cache_clear()
