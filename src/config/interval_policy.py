@@ -11,6 +11,7 @@ INTERVAL_WINDOWS: Dict[str, timedelta] = {
     "5m": timedelta(days=60),
     "15m": timedelta(days=60),
     "30m": timedelta(days=60),
+    "60m": timedelta(days=730),  # alias for "1h"
     "1h": timedelta(days=730),  # ~2 years
     "1d": timedelta(days=365 * 35),
     "1wk": timedelta(days=365 * 40),

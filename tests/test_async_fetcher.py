@@ -15,6 +15,7 @@ from ingest.fetch_async import fetch_many_async
 from datasource.base_async import AsyncDataSource
 from datasource.yahoo_async import YahooAsyncDataSource
 from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+from src.config.interval_policy import full_backfill_start
 
 
 class FakeAsyncDataSource(AsyncDataSource):
@@ -183,6 +184,47 @@ async def test_intraday_incremental_fetch_avoids_same_day_gap(monkeypatch):
     expected_index = pd.Index(list(cached_idx) + list(new_idx))
     pd.testing.assert_index_equal(result.index, expected_index)
     pd.testing.assert_index_equal(saved["df"].index, expected_index)
+
+
+@pytest.mark.asyncio
+async def test_async_fetcher_uses_60m_alias(monkeypatch):
+    class FrozenDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return date(2024, 1, 1)
+
+    monkeypatch.setattr("ingest.async_fetch_prices.date", FrozenDate)
+    monkeypatch.setattr("src.config.interval_policy.date", FrozenDate)
+
+    class RecordingDataSource(AsyncDataSource):
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, date, date, str]] = []
+
+        async def get_prices(
+            self, ticker: str, start: date, end: date, interval: str
+        ) -> pd.DataFrame:
+            self.calls.append((ticker, start, end, interval))
+            await asyncio.sleep(0)
+            idx = pd.date_range(start, periods=1, freq="h")
+            return pd.DataFrame({"Adj Close": [1.0]}, index=idx)
+
+        async def validate_ticker(self, ticker: str) -> bool:
+            return True
+
+    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", lambda *_, **__: None)
+
+    datasource = RecordingDataSource()
+    fetcher = AsyncPriceFetcher(datasource, throttle=0)
+
+    result = await fetcher.fetch_one("XYZ", "60m", force_refresh=True)
+
+    assert datasource.calls, "datasource should be invoked for 60m interval"
+    _, start_arg, end_arg, interval_arg = datasource.calls[0]
+    expected_start = full_backfill_start("1h", today=FrozenDate.today())
+    assert start_arg == expected_start
+    assert end_arg == FrozenDate.today()
+    assert interval_arg == "60m"
+    assert not result.empty
 
 
 def test_fetch_many_async(tmp_path, monkeypatch):
