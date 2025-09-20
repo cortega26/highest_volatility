@@ -8,7 +8,7 @@ from typing import List
 from highest_volatility.errors import ValidationError
 
 TICKER_PATTERN = re.compile(r"^[A-Z0-9.\-]{1,10}$")
-INTERVAL_PATTERN = re.compile(r"^[0-9]+[smhdw]$")
+INTERVAL_PATTERN = re.compile(r"^[0-9]+(?:wk|mo|[smhdw])$")
 FORMAT_CHOICES = {"json", "parquet"}
 
 
