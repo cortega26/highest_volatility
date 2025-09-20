@@ -20,6 +20,7 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional
     YahooAsyncDataSource = None  # type: ignore
 
+from src.config.interval_policy import full_backfill_start
 from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
 
 # Optional caching stack (present in this repo under src/cache and src/ingest)
@@ -157,7 +158,7 @@ def download_price_history(
         else:
             datasource = YahooHTTPAsyncDataSource()
         end_date = date.today()
-        start_date = end_date - timedelta(days=lookback_days * 2)
+        start_date = full_backfill_start(interval, today=end_date)
         sem = asyncio.Semaphore(max_workers)
 
         async def _one(ticker: str) -> tuple[str, pd.DataFrame]:
@@ -197,7 +198,7 @@ def download_price_history(
     # Per-ticker cached fetch with incremental update
     frames: Dict[str, pd.DataFrame] = {}
     end_date = date.today()
-    start_date = (end_date - timedelta(days=lookback_days * 2))
+    start_date = end_date - timedelta(days=lookback_days * 2)
 
     # First pass: detect up-to-date tickers and prepare a plan for those needing fetch
     to_fetch: List[str] = []
@@ -226,7 +227,7 @@ def download_price_history(
     def _fetch_and_merge(t: str) -> Optional[pd.DataFrame]:
         cached_df = cache_map.get(t)
         if cached_df is None or cached_df.empty:
-            fetch_start = start_date
+            fetch_start = full_backfill_start(interval, today=end_date)
         else:
             last = cached_df.index[-1]
             if not isinstance(last, pd.Timestamp):
