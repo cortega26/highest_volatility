@@ -6,6 +6,7 @@ index contains dates and columns are ticker symbols.  All functions return
 consistent manner.
 """
 
+import re
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Union, cast
 
@@ -16,13 +17,52 @@ TRADING_DAYS_PER_YEAR = 252
 TRADING_MINUTES_PER_DAY = 390
 
 
-def periods_per_year(interval: str) -> float:
-    """Return the number of observation periods in a year for a given interval."""
+_INTERVAL_PATTERN = re.compile(r"^(?P<value>\d+(?:\.\d+)?)(?P<unit>[a-zA-Z]+)$")
 
-    if interval.endswith("m"):
-        minutes = int(interval[:-1])
+
+def periods_per_year(interval: str) -> float:
+    """Return the annual observation count for a Yahoo-style interval string.
+
+    Parameters
+    ----------
+    interval:
+        Interval suffix such as ``"1m"`` (one minute) or ``"1wk"`` (one week).
+
+    Returns
+    -------
+    float
+        Number of observations per year implied by ``interval``.
+
+    Raises
+    ------
+    ValueError
+        If ``interval`` cannot be parsed or encodes a non-positive duration.
+    """
+
+    normalized = interval.strip().lower()
+    match = _INTERVAL_PATTERN.fullmatch(normalized)
+    if match is None:
+        raise ValueError(f"Unrecognised interval: {interval!r}")
+
+    value = float(match.group("value"))
+    if value <= 0:
+        raise ValueError("Interval magnitude must be positive")
+
+    unit = match.group("unit")
+    if unit == "m":
+        minutes = value
         return TRADING_DAYS_PER_YEAR * TRADING_MINUTES_PER_DAY / minutes
-    return TRADING_DAYS_PER_YEAR
+    if unit == "h":
+        minutes = value * 60.0
+        return TRADING_DAYS_PER_YEAR * TRADING_MINUTES_PER_DAY / minutes
+    if unit == "d":
+        return TRADING_DAYS_PER_YEAR / value
+    if unit == "wk":
+        return 52.0 / value
+    if unit == "mo":
+        return 12.0 / value
+
+    raise ValueError(f"Unsupported interval unit: {interval!r}")
 
 
 def daily_returns(prices: pd.DataFrame) -> pd.DataFrame:
