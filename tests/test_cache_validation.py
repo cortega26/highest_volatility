@@ -87,6 +87,41 @@ def test_validate_cache_holiday_gap_allowed_without_mcal(monkeypatch):
         validation._get_trading_calendar.cache_clear()
 
 
+@pytest.mark.parametrize(
+    "start_date,end_date",
+    [
+        ("1985-09-26", "1985-09-30"),
+        ("1994-04-26", "1994-04-28"),
+        ("2001-09-10", "2001-09-17"),
+        ("2004-06-10", "2004-06-14"),
+        ("2006-12-29", "2007-01-03"),
+        ("2012-10-26", "2012-10-31"),
+        ("2018-12-04", "2018-12-06"),
+    ],
+)
+def test_validate_cache_special_closures_without_mcal(monkeypatch, start_date, end_date):
+    monkeypatch.setattr(validation, "mcal", None)
+    validation._get_trading_calendar.cache_clear()
+
+    idx = pd.to_datetime([start_date, end_date])
+    df = pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=idx)
+    manifest = store.Manifest(
+        ticker="ABC",
+        interval="1d",
+        start=str(df.index[0].date()),
+        end=str(df.index[-1].date()),
+        rows=len(df),
+        source="test",
+        version=1,
+        updated_at="2020-01-01T00:00:00Z",
+    )
+
+    try:
+        validate_cache(df, manifest)
+    finally:
+        validation._get_trading_calendar.cache_clear()
+
+
 def test_validate_cache_nan():
     df = _make_df()
     df.iloc[1, 0] = None
