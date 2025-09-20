@@ -20,7 +20,7 @@ DEFAULT_LOOKBACK_DAYS = 252
 DEFAULT_TOP_N = 100
 DEFAULT_PRINT_TOP = 5
 DEFAULT_MIN_DAYS = 126
-INTERVAL_CHOICES = ["1d", "60m", "30m", "15m", "5m", "1m"]
+INTERVAL_CHOICES = ["1d", "1h", "30m", "15m", "5m", "1m"]
 # Load any third-party metric plugins before building choices
 load_plugins()
 METRIC_CHOICES = sorted(METRIC_REGISTRY.keys())
