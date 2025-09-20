@@ -1,8 +1,14 @@
 """Validation utilities for cached price data."""
 
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import pandas as pd
+
+try:  # pragma: no cover - optional dependency for trading calendars
+    import pandas_market_calendars as mcal
+except ImportError:  # pragma: no cover - fallback to plain business days
+    mcal = None
 
 if TYPE_CHECKING:  # pragma: no cover - imported for type hints only
     from src.cache.store import Manifest
@@ -38,13 +44,45 @@ def _is_daily_interval(interval: str) -> bool:
     return interval.lower().endswith("d")
 
 
+@lru_cache(maxsize=1)
+def _get_trading_calendar():
+    """Return the XNYS trading calendar if available, otherwise ``None``."""
+
+    if mcal is None:  # pragma: no cover - handled in fallback path
+        return None
+    for calendar_name in ("XNYS", "NYSE"):
+        try:
+            return mcal.get_calendar(calendar_name)
+        except Exception:  # pragma: no cover - other names tried before fallback
+            continue
+    return None
+
+
+def _expected_trading_dates(start: pd.Timestamp, end: pd.Timestamp) -> pd.Index:
+    """Compute the ordered trading dates between ``start`` and ``end``."""
+
+    calendar = _get_trading_calendar()
+    if calendar is None:
+        expected = pd.bdate_range(start.normalize(), end.normalize(), tz=start.tz)
+        return pd.Index(expected.normalize().date)
+
+    valid_sessions = calendar.valid_days(start.date(), end.date())
+    valid_sessions = pd.DatetimeIndex(valid_sessions)
+    return pd.Index([session.date() for session in valid_sessions])
+
+
 def _validate_business_day_index(index: pd.DatetimeIndex) -> None:
-    """Ensure an index covers every business day between its endpoints."""
+    """Ensure an index covers every observed trading day between endpoints."""
+
+    if index.empty:
+        return
 
     normalized = index.normalize()
-    tz = normalized.tz
-    expected = pd.bdate_range(normalized.min(), normalized.max(), tz=tz)
-    if len(expected) != len(index) or not normalized.equals(expected):
+    observed = pd.Index(normalized.date)
+    expected = _expected_trading_dates(normalized.min(), normalized.max())
+    observed_set = set(observed)
+    missing_expected = [session for session in expected if session not in observed_set]
+    if missing_expected:
         raise ValueError("Gap detected in index")
 
 

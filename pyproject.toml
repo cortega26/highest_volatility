@@ -20,6 +20,7 @@ dependencies = [
     "streamlit",
     "pydantic-settings",
     "httpx",
+    "pandas-market-calendars",
 ]
 
 [project.optional-dependencies]

@@ -21,3 +21,4 @@ redis
 streamlit
 pydantic-settings
 httpx
+pandas-market-calendars
