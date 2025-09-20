@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 from io import BytesIO
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import Scope
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from src.cache.store import load_cached
 from highest_volatility.errors import CacheError, ErrorCode, HVError, wrap_error
@@ -23,7 +22,9 @@ from src.security.validation import (
 class SecureHeadersMiddleware(BaseHTTPMiddleware):
     """Apply baseline security headers to all responses."""
 
-    async def dispatch(self, request: Scope, call_next):  # type: ignore[override]
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         response = await call_next(request)
         response.headers.setdefault(
             "Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload"
