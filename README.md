@@ -23,11 +23,9 @@ Runtime notes:
   Common examples include ``HV_REDIS_URL`` (default ``redis://localhost:6379/0``)
   and ``HV_CACHE_REFRESH_INTERVAL``.
 
-The service provides two endpoints:
-
-- ``/prices/{ticker}`` – return cached prices for ``ticker``. Use the ``fmt``
-  query parameter to request ``json`` (default) or ``parquet`` bytes.
-- ``/fortune-tickers`` – return the cached Fortune 500 ticker list.
+The service provides several HTTP endpoints documented in
+[`docs/api.md`](docs/api.md). Refer to that guide for request/response schemas,
+error handling behaviour, and configuration options.
 
 ### Validation Notes
 
