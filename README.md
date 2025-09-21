@@ -36,6 +36,17 @@ same trading day are merged correctly. The synchronous and asynchronous
 fetchers share this behavior, with ``tests/test_price_fetcher.py`` verifying the
 intraday cache replay alongside the existing daily interval regression.
 
+### Batch Price Downloads
+
+The synchronous ``download_price_history`` helper downloads tickers in chunks of
+40 symbols. Each chunk is submitted to a thread pool so multiple batches can be
+in-flight when ``max_workers`` is greater than one. A failed chunk will fall
+back to sequential single-ticker retries inside its worker without blocking
+other threads. Tune ``max_workers`` based on available CPU capacity and the
+latency of your network connection; values between 4 and 8 work well for most
+desktop environments. Introduce a short ``chunk_sleep`` (for example, ``0.5``
+seconds) after each batch if the upstream API begins throttling requests.
+
 Client utilities such as ``cache.store`` will hydrate missing local cache files
 from this API when the ``HV_API_BASE_URL`` environment variable is set.
 
