@@ -36,3 +36,31 @@ def test_hverror_to_dict_embeds_full_cause_chain() -> None:
     assert cause["os_error"]["errno"] == 101
     # Ensure we do not just emit the class name.
     assert "Cannot reach host" in cause["message"]
+
+
+def test_sanitize_context_recursively_redacts_sensitive_keys() -> None:
+    error = DataSourceError(
+        "Datasource request failed",
+        context={
+            "token": "plain-text-token",
+            "request": {
+                "headers": {"Authorization": "Bearer secret", "X-Trace": "ok"},
+            },
+            "nested": {"apiKey": "key123", "safe": "value"},
+            "history": [
+                {"token": "historical"},
+                {"note": "retain"},
+            ],
+        },
+    )
+
+    payload = error.to_dict()
+    context = payload["context"]
+
+    assert context["token"] == "***REDACTED***"
+    assert context["nested"]["apiKey"] == "***REDACTED***"
+    assert context["nested"]["safe"] == "value"
+    assert context["request"]["headers"]["Authorization"] == "***REDACTED***"
+    assert context["request"]["headers"]["X-Trace"] == "ok"
+    assert context["history"][0]["token"] == "***REDACTED***"
+    assert context["history"][1]["note"] == "retain"
