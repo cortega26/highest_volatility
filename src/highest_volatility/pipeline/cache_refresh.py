@@ -7,6 +7,11 @@ from typing import List
 
 from src.cache.store import CACHE_ROOT
 from highest_volatility.ingest.prices import download_price_history
+from highest_volatility.errors import HVError, wrap_error
+from highest_volatility.logging import get_logger, log_exception
+
+
+logger = get_logger(__name__)
 
 
 def _cached_tickers(interval: str = "1d") -> List[str]:
@@ -33,13 +38,20 @@ async def refresh_cached_prices(*, interval: str = "1d", lookback_days: int = 36
 
     tickers = _cached_tickers(interval)
     for ticker in tickers:
-        await asyncio.to_thread(
-            download_price_history,
-            [ticker],
-            lookback_days,
-            interval=interval,
-            force_refresh=False,
-        )
+        try:
+            await asyncio.to_thread(
+                download_price_history,
+                [ticker],
+                lookback_days,
+                interval=interval,
+                force_refresh=False,
+            )
+        except HVError as err:
+            log_exception(
+                logger,
+                err.add_context(ticker=ticker, interval=interval),
+                event="cache_refresh_failed",
+            )
 
 
 async def schedule_cache_refresh(
@@ -61,5 +73,20 @@ async def schedule_cache_refresh(
     """
 
     while True:
-        await refresh_cached_prices(interval=interval, lookback_days=lookback_days)
-        await asyncio.sleep(delay)
+        try:
+            await refresh_cached_prices(interval=interval, lookback_days=lookback_days)
+        except Exception as err:  # pragma: no cover - defensive catch-all
+            log_exception(
+                logger,
+                wrap_error(
+                    err,
+                    message="Scheduled cache refresh iteration failed",
+                    context={
+                        "interval": interval,
+                        "lookback_days": lookback_days,
+                    },
+                ),
+                event="cache_refresh_iteration_failed",
+            )
+        finally:
+            await asyncio.sleep(delay)
