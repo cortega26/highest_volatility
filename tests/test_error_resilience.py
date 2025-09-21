@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ingest.fetch_async import fetch_many_async
+from highest_volatility.app import api as hv_api
 from highest_volatility.app.api import app as hv_app
 from highest_volatility.errors import (
     DataSourceError,
@@ -52,9 +53,52 @@ def test_prices_endpoint_surfaces_datasource_error(monkeypatch):
     )
 
     with TestClient(hv_app) as client:
-        response = client.get("/prices", params={"tickers": "AAPL", "lookback_days": 5})
+        response = client.get("/prices", params={"tickers": "AAPL", "lookback_days": 30})
 
     assert response.status_code == 502
     assert "Upstream feed" in response.json()["detail"]
     metrics = get_error_metrics()
     assert metrics.get(ErrorCode.DATA_SOURCE.value, 0) >= 1
+
+
+def test_metrics_endpoint_wraps_compute_error(monkeypatch, caplog):
+    reset_error_metrics()
+    caplog.set_level(logging.ERROR)
+
+    def _mock_prices(*args, **kwargs):
+        idx = pd.date_range("2020-01-01", periods=5)
+        return pd.DataFrame({"Close": [1.0, 2.0, 3.0, 4.0, 5.0]}, index=idx)
+
+    def _boom_metric(*args, **kwargs):
+        raise RuntimeError("metric exploded")
+
+    monkeypatch.setattr(
+        "highest_volatility.app.api.download_price_history",
+        _mock_prices,
+    )
+    monkeypatch.setitem(hv_api.METRIC_REGISTRY, "boom", _boom_metric)
+
+    with TestClient(hv_app) as client:
+        response = client.get(
+            "/metrics",
+            params={
+                "tickers": "AAPL",
+                "metric": "boom",
+                "lookback_days": 30,
+                "min_days": 30,
+            },
+        )
+
+    assert response.status_code == 500
+    error_logs = [
+        json.loads(record.message)
+        for record in caplog.records
+        if record.levelno >= logging.ERROR
+    ]
+    metrics_failures = [
+        payload
+        for payload in error_logs
+        if payload.get("event") == "metrics_failure"
+    ]
+    assert metrics_failures, "expected metrics_failure log entry"
+    assert metrics_failures[0]["error"]["code"] == ErrorCode.COMPUTE.value
