@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from src.config.interval_policy import INTERVAL_WINDOWS, full_backfill_start
+from highest_volatility.config.interval_policy import INTERVAL_WINDOWS, full_backfill_start
 
 
 def test_60m_interval_alias_matches_1h() -> None:

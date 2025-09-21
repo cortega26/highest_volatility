@@ -22,6 +22,3 @@ def merge_incremental(existing: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame
     return combined.sort_index()
 
 
-import sys as _sys
-
-_sys.modules.setdefault("cache.merge", _sys.modules[__name__])

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.cache import store
+from highest_volatility.cache import store
 
 
 def make_df():

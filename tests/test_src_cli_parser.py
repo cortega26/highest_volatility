@@ -1,6 +1,6 @@
 import pytest
 
-from src.cli import build_parser
+from highest_volatility.cli import build_parser
 
 
 @pytest.mark.parametrize("interval", ["1h"])

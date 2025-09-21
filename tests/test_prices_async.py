@@ -2,8 +2,8 @@ import pandas as pd
 
 from highest_volatility.ingest import prices
 from datetime import date, datetime
-from src.config.interval_policy import full_backfill_start
-from src.highest_volatility.ingest import downloaders
+from highest_volatility.config.interval_policy import full_backfill_start
+from highest_volatility.ingest import downloaders
 
 
 class FakeAsyncDS:
@@ -69,7 +69,7 @@ def test_download_price_history_async_uses_60m_alias(monkeypatch):
 
     monkeypatch.setattr(prices, "date", FrozenDate)
     monkeypatch.setattr(prices, "datetime", FrozenDateTime)
-    monkeypatch.setattr("src.config.interval_policy.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.config.interval_policy.date", FrozenDate)
     monkeypatch.setattr(prices, "YahooAsyncDataSource", lambda: fake_ds)
 
     df = prices.download_price_history(

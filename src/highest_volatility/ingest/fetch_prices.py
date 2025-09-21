@@ -8,11 +8,11 @@ from typing import Optional
 
 import pandas as pd
 
-from src.cache.merge import merge_incremental
-from src.cache.store import load_cached, save_cache
-from src.config.interval_policy import full_backfill_start
+from highest_volatility.cache.merge import merge_incremental
+from highest_volatility.cache.store import load_cached, save_cache
+from highest_volatility.config.interval_policy import full_backfill_start
 from highest_volatility.errors import DataSourceError
-from src.datasource.base import DataSource
+from highest_volatility.datasource.base import DataSource
 
 
 class PriceFetcher:

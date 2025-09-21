@@ -45,7 +45,7 @@ from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.logging import get_logger, log_exception
 from highest_volatility.universe import build_universe
 from highest_volatility.pipeline.cache_refresh import schedule_cache_refresh
-from src.security.validation import (
+from highest_volatility.security.validation import (
     SanitizationError,
     sanitize_interval,
     sanitize_metric,

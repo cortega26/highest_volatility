@@ -16,9 +16,9 @@ from typing import Any, Dict
 import aiohttp
 import pandas as pd
 
-logger = logging.getLogger(__name__)
-
 from .base_async import AsyncDataSource
+
+logger = logging.getLogger(__name__)
 
 
 class YahooHTTPAsyncDataSource(AsyncDataSource):

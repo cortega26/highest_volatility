@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.cache.store import load_cached
+from highest_volatility.cache.store import load_cached
 
 
 def load_prices_from_cache(ticker: str, interval: str = "1d") -> pd.DataFrame:

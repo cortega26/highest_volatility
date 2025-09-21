@@ -37,3 +37,39 @@ dev = [
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+src = ["src"]
+target-version = "py310"
+
+[tool.ruff.lint]
+extend-select = ["TID"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/bench_additional_volatility.py" = ["E402"]
+"scripts/benchmarks/ohlc_volatility_perf.py" = ["E402"]
+"scripts/diagnose_environment.py" = ["E402"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"src.cache" = { msg = "Import from highest_volatility.cache instead of src.cache." }
+"src.cache.merge" = { msg = "Import from highest_volatility.cache.merge instead of src.cache.merge." }
+"src.cache.store" = { msg = "Import from highest_volatility.cache.store instead of src.cache.store." }
+"src.config" = { msg = "Import from highest_volatility.config instead of src.config." }
+"src.config.interval_policy" = { msg = "Import from highest_volatility.config.interval_policy instead of src.config.interval_policy." }
+"src.datasource" = { msg = "Import from highest_volatility.datasource instead of src.datasource." }
+"src.datasource.base" = { msg = "Import from highest_volatility.datasource.base instead of src.datasource.base." }
+"src.datasource.base_async" = { msg = "Import from highest_volatility.datasource.base_async instead of src.datasource.base_async." }
+"src.datasource.yahoo" = { msg = "Import from highest_volatility.datasource.yahoo instead of src.datasource.yahoo." }
+"src.datasource.yahoo_async" = { msg = "Import from highest_volatility.datasource.yahoo_async instead of src.datasource.yahoo_async." }
+"src.datasource.yahoo_http_async" = { msg = "Import from highest_volatility.datasource.yahoo_http_async instead of src.datasource.yahoo_http_async." }
+"src.ingest" = { msg = "Import from highest_volatility.ingest instead of src.ingest." }
+"src.ingest.async_fetch_prices" = { msg = "Import from highest_volatility.ingest.async_fetch_prices instead of src.ingest.async_fetch_prices." }
+"src.ingest.fetch_async" = { msg = "Import from highest_volatility.ingest.fetch_async instead of src.ingest.fetch_async." }
+"src.ingest.fetch_parallel" = { msg = "Import from highest_volatility.ingest.fetch_parallel instead of src.ingest.fetch_parallel." }
+"src.ingest.fetch_prices" = { msg = "Import from highest_volatility.ingest.fetch_prices instead of src.ingest.fetch_prices." }
+"src.pipeline" = { msg = "Import from highest_volatility.pipeline instead of src.pipeline." }
+"src.pipeline.cache_refresh" = { msg = "Import from highest_volatility.pipeline.cache_refresh instead of src.pipeline.cache_refresh." }
+"src.pipeline.load_prices" = { msg = "Import from highest_volatility.pipeline.load_prices instead of src.pipeline.load_prices." }
+"src.pipeline.validation" = { msg = "Import from highest_volatility.pipeline.validation instead of src.pipeline.validation." }
+"src.security" = { msg = "Import from highest_volatility.security instead of src.security." }
+"src.security.validation" = { msg = "Import from highest_volatility.security.validation instead of src.security.validation." }

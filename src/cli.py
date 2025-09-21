@@ -10,12 +10,12 @@ import pandas as pd
 
 import asyncio
 
-from src.cache.store import load_cached
-from src.config.interval_policy import full_backfill_start
-from src.datasource.yahoo import YahooDataSource
-from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
-from src.ingest.fetch_async import fetch_many_async
-from src.ingest.async_fetch_prices import AsyncPriceFetcher
+from highest_volatility.cache.store import load_cached
+from highest_volatility.config.interval_policy import full_backfill_start
+from highest_volatility.datasource.yahoo import YahooDataSource
+from highest_volatility.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+from highest_volatility.ingest.fetch_async import fetch_many_async
+from highest_volatility.ingest.async_fetch_prices import AsyncPriceFetcher
 
 
 def _compare_frames(a: pd.DataFrame, b: pd.DataFrame) -> bool:

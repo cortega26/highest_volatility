@@ -5,8 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.highest_volatility.ingest import prices
-from src.highest_volatility.ingest import downloaders
+from highest_volatility.ingest import downloaders, prices
 
 
 def _make_chunk_frame(tickers: List[str]) -> pd.DataFrame:
@@ -44,10 +43,10 @@ def test_batch_download_submits_multiple_chunks():
             return future
 
     with patch(
-        "src.highest_volatility.ingest.downloaders.ThreadPoolExecutor",
+        "highest_volatility.ingest.downloaders.ThreadPoolExecutor",
         side_effect=lambda max_workers: ImmediateExecutor(max_workers),
     ):
-        with patch("src.highest_volatility.ingest.prices.yf.download", side_effect=fake_download):
+        with patch("highest_volatility.ingest.prices.yf.download", side_effect=fake_download):
             df = prices.download_price_history(
                 tickers,
                 lookback_days=5,
@@ -71,7 +70,7 @@ def test_concurrent_batches_reduce_latency():
         symbols = tickers_arg.split(" ") if isinstance(tickers_arg, str) else list(tickers_arg)
         return _make_chunk_frame(symbols)
 
-    with patch("src.highest_volatility.ingest.prices.yf.download", side_effect=sleepy_download):
+    with patch("highest_volatility.ingest.prices.yf.download", side_effect=sleepy_download):
         start_serial = time.perf_counter()
         prices.download_price_history(
             tickers,
@@ -82,7 +81,7 @@ def test_concurrent_batches_reduce_latency():
         )
         serial_duration = time.perf_counter() - start_serial
 
-    with patch("src.highest_volatility.ingest.prices.yf.download", side_effect=sleepy_download):
+    with patch("highest_volatility.ingest.prices.yf.download", side_effect=sleepy_download):
         start_concurrent = time.perf_counter()
         prices.download_price_history(
             tickers,

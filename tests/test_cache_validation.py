@@ -1,9 +1,8 @@
 import pandas as pd
 import pytest
 
-from src.cache import store
-from highest_volatility.pipeline import validate_cache
-from src.highest_volatility.pipeline import validation
+from highest_volatility.cache import store
+from highest_volatility.pipeline import validation, validate_cache
 
 
 def _make_df():

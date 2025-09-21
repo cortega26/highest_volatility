@@ -78,7 +78,7 @@ class _FallbackNYSEHolidayCalendar(AbstractHolidayCalendar):
 _FALLBACK_CALENDAR = _FallbackNYSEHolidayCalendar()
 
 if TYPE_CHECKING:  # pragma: no cover - imported for type hints only
-    from src.cache.store import Manifest
+    from highest_volatility.cache.store import Manifest
 
 FREQ_MAP = {
     "1m": "1min",

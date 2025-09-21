@@ -78,10 +78,10 @@ def _has_time_components(df: pd.DataFrame) -> bool:
 async def _refetch_30m(ticker: str, *, days: int = 60) -> pd.DataFrame:
     # Lazy import to keep script light if user only runs daily conversion
     _ensure_src_on_path()
-    from src.config.interval_policy import INTERVAL_WINDOWS
+    from highest_volatility.config.interval_policy import INTERVAL_WINDOWS
 
     try:
-        from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+        from highest_volatility.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("Missing YahooHTTPAsyncDataSource in runtime") from exc
 
@@ -99,7 +99,7 @@ async def _refetch_30m(ticker: str, *, days: int = 60) -> pd.DataFrame:
 
 def convert_legacy_daily(root: Path, *, delete_legacy: bool = False, dry_run: bool = False) -> None:
     _ensure_src_on_path()
-    from src.cache.store import save_cache
+    from highest_volatility.cache.store import save_cache
 
     for csv in _iter_legacy_daily_csv(root):
         ticker = csv.stem
@@ -122,7 +122,7 @@ def convert_legacy_daily(root: Path, *, delete_legacy: bool = False, dry_run: bo
 
 def repair_30m(root: Path, *, refetch_days: int = 60, delete_legacy: bool = False, dry_run: bool = False) -> None:
     _ensure_src_on_path()
-    from src.cache.store import save_cache
+    from highest_volatility.cache.store import save_cache
 
     to_fix: list[Path] = []
     for csv in _iter_legacy_30m_csv(root):
@@ -153,7 +153,7 @@ def repair_30m(root: Path, *, refetch_days: int = 60, delete_legacy: bool = Fals
     # Refetch those lacking intraday times
     async def _do_refetch():
         _ensure_src_on_path()
-        from src.cache.store import save_cache
+        from highest_volatility.cache.store import save_cache
 
         for csv in to_fix:
             ticker = csv.stem
@@ -174,7 +174,7 @@ def repair_30m(root: Path, *, refetch_days: int = 60, delete_legacy: bool = Fals
 
 def main() -> None:
     _ensure_src_on_path()
-    from src.cache.store import CACHE_ROOT
+    from highest_volatility.cache.store import CACHE_ROOT
 
     parser = argparse.ArgumentParser(description="Normalize cache layout and fix intraday timestamps")
     parser.add_argument("--root", type=Path, default=CACHE_ROOT, help="Cache root (default: cache/prices)")

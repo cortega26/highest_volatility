@@ -3,11 +3,11 @@ from typing import List
 
 import pandas as pd
 
-from src.cache import store
-from datasource.base import DataSource
-from ingest.fetch_prices import PriceFetcher
-from src.config.interval_policy import full_backfill_start
-from src.highest_volatility.ingest import downloaders
+from highest_volatility.cache import store
+from highest_volatility.datasource.base import DataSource
+from highest_volatility.ingest.fetch_prices import PriceFetcher
+from highest_volatility.config.interval_policy import full_backfill_start
+from highest_volatility.ingest import downloaders
 
 
 class FakeDataSource(DataSource):
@@ -25,7 +25,7 @@ class FakeDataSource(DataSource):
 
 def test_incremental_and_force_refresh(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
-    monkeypatch.setattr("ingest.fetch_prices.full_backfill_start", lambda interval, today=None: date(2020, 1, 1))
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.full_backfill_start", lambda interval, today=None: date(2020, 1, 1))
 
     ds = FakeDataSource()
     fetcher = PriceFetcher(ds, throttle=0)
@@ -40,15 +40,15 @@ def test_incremental_and_force_refresh(tmp_path, monkeypatch):
     def fake_load_cached(ticker: str, interval: str):
         return saved.get((ticker, interval)), None
 
-    monkeypatch.setattr("ingest.fetch_prices.save_cache", fake_save_cache)
-    monkeypatch.setattr("ingest.fetch_prices.load_cached", fake_load_cached)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.load_cached", fake_load_cached)
 
     class D1(date):
         @classmethod
         def today(cls):
             return date(2020, 1, 5)
 
-    monkeypatch.setattr("ingest.fetch_prices.date", D1)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.date", D1)
     df1 = fetcher.fetch_one("ABC", "1d")
     assert ds.calls[0][1] == date(2020, 1, 1)
 
@@ -57,7 +57,7 @@ def test_incremental_and_force_refresh(tmp_path, monkeypatch):
         def today(cls):
             return date(2020, 1, 6)
 
-    monkeypatch.setattr("ingest.fetch_prices.date", D2)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.date", D2)
     df2 = fetcher.fetch_one("ABC", "1d")
     assert ds.calls[1][1] == date(2020, 1, 6)
     assert len(df2) == len(df1) + 1
@@ -74,7 +74,7 @@ def test_intraday_refresh_replays_cached_day(tmp_path, monkeypatch):
         def today(cls):
             return date(2024, 5, 20)
 
-    monkeypatch.setattr("ingest.fetch_prices.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.date", FrozenDate)
 
     saved: dict[tuple[str, str], pd.DataFrame] = {}
 
@@ -87,8 +87,8 @@ def test_intraday_refresh_replays_cached_day(tmp_path, monkeypatch):
     def fake_load_cached(ticker: str, interval: str):
         return saved.get((ticker, interval)), None
 
-    monkeypatch.setattr("ingest.fetch_prices.save_cache", fake_save_cache)
-    monkeypatch.setattr("ingest.fetch_prices.load_cached", fake_load_cached)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.load_cached", fake_load_cached)
 
     class IntradayDataSource(DataSource):
         def __init__(self):
@@ -120,8 +120,8 @@ def test_price_fetcher_uses_60m_alias(monkeypatch):
         def today(cls):
             return date(2024, 1, 1)
 
-    monkeypatch.setattr("ingest.fetch_prices.date", FrozenDate)
-    monkeypatch.setattr("src.config.interval_policy.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.config.interval_policy.date", FrozenDate)
 
     class RecordingDataSource(DataSource):
         def __init__(self):
@@ -135,7 +135,7 @@ def test_price_fetcher_uses_60m_alias(monkeypatch):
         def validate_ticker(self, ticker: str) -> bool:
             return True
 
-    monkeypatch.setattr("ingest.fetch_prices.save_cache", lambda *_, **__: None)
+    monkeypatch.setattr("highest_volatility.ingest.fetch_prices.save_cache", lambda *_, **__: None)
 
     datasource = RecordingDataSource()
     fetcher = PriceFetcher(datasource, throttle=0)

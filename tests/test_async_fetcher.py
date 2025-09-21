@@ -9,13 +9,13 @@ import pandas as pd
 import pytest
 from yarl import URL
 
-from src.cache import store
-from ingest.async_fetch_prices import AsyncPriceFetcher
-from ingest.fetch_async import fetch_many_async
-from datasource.base_async import AsyncDataSource
-from datasource.yahoo_async import YahooAsyncDataSource
-from datasource.yahoo_http_async import YahooHTTPAsyncDataSource
-from src.config.interval_policy import full_backfill_start
+from highest_volatility.cache import store
+from highest_volatility.ingest.async_fetch_prices import AsyncPriceFetcher
+from highest_volatility.ingest.fetch_async import fetch_many_async
+from highest_volatility.datasource.base_async import AsyncDataSource
+from highest_volatility.datasource.yahoo_async import YahooAsyncDataSource
+from highest_volatility.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+from highest_volatility.config.interval_policy import full_backfill_start
 
 
 class FakeAsyncDataSource(AsyncDataSource):
@@ -34,7 +34,7 @@ class FakeAsyncDataSource(AsyncDataSource):
 
 def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
-    monkeypatch.setattr("ingest.async_fetch_prices.full_backfill_start", lambda interval, today=None: date(2020, 1, 1))
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.full_backfill_start", lambda interval, today=None: date(2020, 1, 1))
 
     ds = FakeAsyncDataSource()
     fetcher = AsyncPriceFetcher(ds, throttle=0)
@@ -49,15 +49,15 @@ def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
     def fake_load_cached(ticker: str, interval: str):
         return saved.get((ticker, interval)), None
 
-    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
-    monkeypatch.setattr("ingest.async_fetch_prices.load_cached", fake_load_cached)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.load_cached", fake_load_cached)
 
     class D1(date):
         @classmethod
         def today(cls):
             return date(2020, 1, 5)
 
-    monkeypatch.setattr("ingest.async_fetch_prices.date", D1)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.date", D1)
     df1 = asyncio.run(fetcher.fetch_one("ABC", "1d"))
     assert ds.calls[0][1] == date(2020, 1, 1)
 
@@ -66,7 +66,7 @@ def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
         def today(cls):
             return date(2020, 1, 6)
 
-    monkeypatch.setattr("ingest.async_fetch_prices.date", D2)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.date", D2)
     df2 = asyncio.run(fetcher.fetch_one("ABC", "1d"))
     assert ds.calls[1][1] == date(2020, 1, 6)
     assert len(df2) == len(df1) + 1
@@ -79,10 +79,10 @@ def test_async_incremental_and_force_refresh(tmp_path, monkeypatch):
 async def test_async_fetcher_drops_nan_rows_before_persist(monkeypatch, tmp_path):
     monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
     monkeypatch.setattr(
-        "ingest.async_fetch_prices.full_backfill_start",
+        "highest_volatility.ingest.async_fetch_prices.full_backfill_start",
         lambda interval, today=None: date(2020, 1, 1),
     )
-    monkeypatch.setattr("ingest.async_fetch_prices.load_cached", lambda *_, **__: (None, None))
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.load_cached", lambda *_, **__: (None, None))
 
     class NaNDataSource(AsyncDataSource):
         async def get_prices(
@@ -105,14 +105,14 @@ async def test_async_fetcher_drops_nan_rows_before_persist(monkeypatch, tmp_path
     ) -> None:
         saved["df"] = df.copy()
 
-    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.save_cache", fake_save_cache)
 
     class FrozenDate(date):
         @classmethod
         def today(cls) -> date:
             return date(2020, 1, 3)
 
-    monkeypatch.setattr("ingest.async_fetch_prices.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.date", FrozenDate)
 
     fetcher = AsyncPriceFetcher(NaNDataSource(), throttle=0)
 
@@ -156,7 +156,7 @@ async def test_intraday_incremental_fetch_avoids_same_day_gap(monkeypatch):
     fetcher = AsyncPriceFetcher(ds, throttle=0)
 
     monkeypatch.setattr(
-        "ingest.async_fetch_prices.load_cached", lambda *_, **__: (cached_df.copy(), None)
+        "highest_volatility.ingest.async_fetch_prices.load_cached", lambda *_, **__: (cached_df.copy(), None)
     )
 
     saved: dict[str, pd.DataFrame] = {}
@@ -166,14 +166,14 @@ async def test_intraday_incremental_fetch_avoids_same_day_gap(monkeypatch):
     ) -> None:
         saved["df"] = df.copy()
 
-    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.save_cache", fake_save_cache)
 
     class FrozenDate(date):
         @classmethod
         def today(cls) -> date:
             return date(2020, 1, 5)
 
-    monkeypatch.setattr("ingest.async_fetch_prices.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.date", FrozenDate)
 
     result = await fetcher.fetch_one("ABC", "30m")
 
@@ -193,8 +193,8 @@ async def test_async_fetcher_uses_60m_alias(monkeypatch):
         def today(cls) -> date:
             return date(2024, 1, 1)
 
-    monkeypatch.setattr("ingest.async_fetch_prices.date", FrozenDate)
-    monkeypatch.setattr("src.config.interval_policy.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.date", FrozenDate)
+    monkeypatch.setattr("highest_volatility.config.interval_policy.date", FrozenDate)
 
     class RecordingDataSource(AsyncDataSource):
         def __init__(self) -> None:
@@ -211,7 +211,7 @@ async def test_async_fetcher_uses_60m_alias(monkeypatch):
         async def validate_ticker(self, ticker: str) -> bool:
             return True
 
-    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", lambda *_, **__: None)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.save_cache", lambda *_, **__: None)
 
     datasource = RecordingDataSource()
     fetcher = AsyncPriceFetcher(datasource, throttle=0)
@@ -229,7 +229,7 @@ async def test_async_fetcher_uses_60m_alias(monkeypatch):
 
 def test_fetch_many_async(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
-    monkeypatch.setattr("ingest.async_fetch_prices.full_backfill_start", lambda interval, today=None: date(2020, 1, 1))
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.full_backfill_start", lambda interval, today=None: date(2020, 1, 1))
 
     ds = FakeAsyncDataSource()
     fetcher = AsyncPriceFetcher(ds, throttle=0)
@@ -244,15 +244,15 @@ def test_fetch_many_async(tmp_path, monkeypatch):
     def fake_load_cached(ticker: str, interval: str):
         return saved.get((ticker, interval)), None
 
-    monkeypatch.setattr("ingest.async_fetch_prices.save_cache", fake_save_cache)
-    monkeypatch.setattr("ingest.async_fetch_prices.load_cached", fake_load_cached)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.load_cached", fake_load_cached)
 
     class D(date):
         @classmethod
         def today(cls):
             return date(2020, 1, 5)
 
-    monkeypatch.setattr("ingest.async_fetch_prices.date", D)
+    monkeypatch.setattr("highest_volatility.ingest.async_fetch_prices.date", D)
     res = asyncio.run(fetch_many_async(fetcher, ["AAA", "BBB"], "1d", max_concurrency=2))
     assert set(res.keys()) == {"AAA", "BBB"}
     assert all(isinstance(df, pd.DataFrame) for df in res.values())
