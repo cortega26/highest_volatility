@@ -152,14 +152,27 @@ def build_universe(
             )
             log_exception(logger, error, event="fortune_sort_failed")
 
+    # Carry both raw and normalized tickers for downstream alignment
+    try:
+        fortune_df = fortune_df.copy()
+        fortune_df["ticker"] = fortune_df["ticker"].astype(str).str.strip()
+        fortune_df["normalized_ticker"] = fortune_df["ticker"].map(normalize_ticker)
+    except Exception as exc:  # pragma: no cover - defensive
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to normalize Fortune tickers",
+        )
+        log_exception(logger, error, event="fortune_normalize_failed")
+        fortune_df["normalized_ticker"] = fortune_df["ticker"].map(normalize_ticker)
+
     # Deduplicate by normalized ticker while preserving order
     tickers: List[str] = []
     companies: List[str] = []
     seen = set()
     for _, row in fortune_df.iterrows():
         name = str(row["company"]).strip()
-        raw_ticker = str(row["ticker"]).strip()
-        tkr = normalize_ticker(raw_ticker)
+        tkr = str(row["normalized_ticker"]).strip()
         # Filter to valid Yahoo-style symbols early
         if not re.fullmatch(r"[A-Z]+[A-Z0-9.-]*", tkr):
             continue
@@ -186,11 +199,10 @@ def build_universe(
 
     # Preserve actual Fortune ranks if available
     try:
-        base = fortune_df.copy()
-        base["ticker"] = base["ticker"].astype(str)
-        sel = base.set_index("ticker").loc[final_tickers, ["rank", "company"]]
-        sel = sel.reset_index().rename(columns={"index": "ticker"})
-        fortune = sel[["rank", "company", "ticker"]]
+        base = fortune_df.drop_duplicates("normalized_ticker", keep="first")
+        base = base.set_index("normalized_ticker")
+        sel = base.loc[final_tickers, ["rank", "company"]]
+        fortune = sel.assign(ticker=sel.index).reset_index(drop=True)
     except Exception as exc:
         # Fallback to enumerated ranks
         error = wrap_error(

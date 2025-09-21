@@ -19,6 +19,17 @@ The service provides two endpoints:
   query parameter to request ``json`` (default) or ``parquet`` bytes.
 - ``/fortune-tickers`` – return the cached Fortune 500 ticker list.
 
+### Validation Notes
+
+Cached Fortune tables may contain raw tickers that use punctuation such as dots
+(``BRK.B``). The universe builder now preserves those raw strings while carrying
+their normalized Yahoo Finance representation (``BRK-B``). Downstream alignment
+and ranking operate on the normalized variant so that cached ``rank`` and
+``company`` metadata are retained without re-enumerating positions. The
+``tests/test_universe_rank_alignment.py`` coverage exercises this code path by
+loading cached data with dotted tickers and ensuring the original ranks remain
+intact.
+
 Client utilities such as ``cache.store`` will hydrate missing local cache files
 from this API when the ``HV_API_BASE_URL`` environment variable is set.
 
