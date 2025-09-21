@@ -7,6 +7,7 @@ from src.cache import store
 from datasource.base import DataSource
 from ingest.fetch_prices import PriceFetcher
 from src.config.interval_policy import full_backfill_start
+from src.highest_volatility.ingest import downloaders
 
 
 class FakeDataSource(DataSource):
@@ -148,3 +149,14 @@ def test_price_fetcher_uses_60m_alias(monkeypatch):
     assert end_arg == FrozenDate.today()
     assert interval_arg == "60m"
     assert not result.empty
+
+
+def test_build_combined_dataframe_matches_frames():
+    frames = {
+        "AAA": pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=pd.to_datetime(["2024-01-01", "2024-01-02"])),
+        "BBB": pd.DataFrame({"Close": [3.0, 4.0]}, index=pd.to_datetime(["2024-01-01", "2024-01-03"])),
+    }
+    combined = downloaders.build_combined_dataframe(frames, trim_start=pd.Timestamp("2024-01-01"))
+    assert ("Adj Close", "AAA") in combined.columns
+    assert ("Close", "BBB") in combined.columns
+    assert combined.loc[pd.Timestamp("2024-01-03"), ("Close", "BBB")] == 4.0

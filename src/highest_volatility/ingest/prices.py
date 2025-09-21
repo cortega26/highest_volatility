@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, Tuple, cast
-import hashlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional
 from contextlib import contextmanager
 import logging
 import asyncio
-import time
 
 import pandas as pd
 import yfinance as yf
@@ -22,6 +19,7 @@ except Exception:  # pragma: no cover - optional
 
 from src.config.interval_policy import full_backfill_start
 from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+from src.highest_volatility.ingest import downloaders
 
 # Optional caching stack (present in this repo under src/cache and src/ingest)
 try:  # pragma: no cover - optional import path
@@ -82,297 +80,86 @@ def download_price_history(
         wait=wait_exponential(multiplier=1, min=1),
     )(_download)
 
-    # Fallback path: plain batch download
-    def _batch_download() -> pd.DataFrame:
-        # Download in chunks to reduce failures and then stitch per-ticker frames
-        CHUNK = 40
-        success: Dict[str, pd.DataFrame] = {}
-        failed: List[str] = []
+    batch_request = downloaders.BatchDownloadRequest(
+        tickers=tickers,
+        start=start_dt,
+        end=end_dt,
+        interval=interval,
+        prepost=prepost,
+        max_workers=max_workers,
+        chunk_sleep=chunk_sleep,
+    )
 
-        chunks = [tickers[i : i + CHUNK] for i in range(0, len(tickers), CHUNK)]
-        if not chunks:
-            return pd.DataFrame()
-
-        effective_workers = max(1, int(max_workers))
-        chunk_results: List[Tuple[int, Dict[str, pd.DataFrame], List[str]]] = []
-
-        def _handle_chunk(chunk_idx: int, chunk: List[str]) -> Tuple[int, Dict[str, pd.DataFrame], List[str]]:
-            local_success: Dict[str, pd.DataFrame] = {}
-            local_failed: List[str] = []
-
-            df = download_with_retry(
-                " ".join(chunk),
-                start=start_dt,
-                end=end_dt,
-                interval=interval,
-                progress=False,
-                auto_adjust=True,
-                prepost=prepost,
-                group_by="column",
-            )
-
-            if df is None or df.empty:
-                for t in chunk:
-                    d1 = download_with_retry(
-                        t,
-                        start=start_dt,
-                        end=end_dt,
-                        interval=interval,
-                        progress=False,
-                        auto_adjust=True,
-                        prepost=prepost,
-                    )
-                    if d1 is None or d1.empty:
-                        local_failed.append(t)
-                        continue
-                    if isinstance(d1.columns, pd.MultiIndex):
-                        d1 = d1.droplevel(1, axis=1)
-                    local_success[t] = d1.sort_index()
-                return chunk_idx, local_success, local_failed
-
-            if isinstance(df.columns, pd.MultiIndex):
-                for t in sorted(set(df.columns.get_level_values(1))):
-                    try:
-                        sub = df.xs(t, axis=1, level=1).dropna(how="all")
-                        if not sub.empty:
-                            local_success[str(t)] = sub.sort_index()
-                        else:
-                            local_failed.append(str(t))
-                    except Exception:
-                        local_failed.append(str(t))
-            else:
-                t = chunk[0]
-                sub = df.dropna(how="all")
-                if not sub.empty:
-                    local_success[t] = sub.sort_index()
-                else:
-                    local_failed.append(t)
-
-            return chunk_idx, local_success, local_failed
-
-        for batch_start in range(0, len(chunks), effective_workers):
-            batch_indices = list(range(batch_start, min(batch_start + effective_workers, len(chunks))))
-            batch_workers = min(len(batch_indices), effective_workers)
-            with ThreadPoolExecutor(max_workers=batch_workers) as executor:
-                future_map = {
-                    executor.submit(_handle_chunk, idx, chunks[idx]): idx for idx in batch_indices
-                }
-                for future in as_completed(future_map):
-                    chunk_results.append(future.result())
-            if chunk_sleep:
-                time.sleep(chunk_sleep)
-
-        for _, chunk_success, chunk_failed in sorted(chunk_results, key=lambda item: item[0]):
-            for ticker, frame in chunk_success.items():
-                success[ticker] = frame
-            failed.extend(chunk_failed)
-
-        if not success:
-            return pd.DataFrame()
-
-        combined = pd.concat(success, axis=1)  # level0=ticker, level1=field
-        combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
-        # Trim window and drop all-empty columns
-        combined = combined.loc[combined.index >= pd.to_datetime(start_dt)]
-        return combined.dropna(how="all")
-
-    async def _async_download() -> pd.DataFrame:
-        if YahooAsyncDataSource is not None:
-            datasource = YahooAsyncDataSource()
-        else:
-            datasource = YahooHTTPAsyncDataSource()
-        end_date = date.today()
-        start_date = full_backfill_start(interval, today=end_date)
-        sem = asyncio.Semaphore(max_workers)
-
-        async def _one(ticker: str) -> tuple[str, pd.DataFrame]:
-            async with sem:
-                df = await datasource.get_prices(ticker, start_date, end_date, interval)
-                return ticker, df
-
-        tasks = [asyncio.create_task(_one(t)) for t in tickers]
-        results = cast(
-            List[tuple[str, pd.DataFrame] | BaseException],
-            await asyncio.gather(*tasks, return_exceptions=True),
-        )
-        frames: Dict[str, pd.DataFrame] = {}
-        for res in results:
-            if isinstance(res, BaseException):
-                continue
-            t, df = res
-            if df is not None and not df.empty:
-                frames[t] = df.sort_index()
-        if not frames:
-            return pd.DataFrame()
-        combined = pd.concat(frames, axis=1)
-        combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
-        combined = combined.loc[combined.index >= pd.to_datetime(start_dt)]
-        return combined.dropna(how="all")
-
-    # Prefer batch mode for matrix correctness unless explicitly overridden
     if matrix_mode == "batch":
-        return _batch_download()
+        batch_result = downloaders._download_batch(batch_request, download_with_retry)
+        return batch_result.to_dataframe(trim_start=start_dt)
+
     if matrix_mode == "async":
-        return asyncio.run(_async_download())
+        async_end = date.today()
+        async_start = full_backfill_start(interval if interval != "60m" else "1h", today=async_end)
 
-    # Use cache if available; otherwise fall back to batch download
-    if not use_cache or load_cached is None or save_cache is None:
-        return _batch_download()
+        def _datasource_factory():
+            if YahooAsyncDataSource is not None:
+                return YahooAsyncDataSource()
+            return YahooHTTPAsyncDataSource()
 
-    # Per-ticker cached fetch with incremental update
-    frames: Dict[str, pd.DataFrame] = {}
-    end_date = date.today()
-    start_date = end_date - timedelta(days=lookback_days * 2)
-
-    def _next_fetch_start(cached_df: Optional[pd.DataFrame]) -> date:
-        if cached_df is None or cached_df.empty:
-            return full_backfill_start(interval, today=end_date)
-        last = cached_df.index[-1]
-        if not isinstance(last, pd.Timestamp):
-            last = pd.to_datetime(last)
-        last_date = last.date()
-        interval_key = interval.lower()
-        if interval_key.endswith(("m", "h")):
-            return last_date
-        return last_date + timedelta(days=1)
-
-    # First pass: detect up-to-date tickers and prepare a plan for those needing fetch
-    to_fetch: List[str] = []
-    cache_map: Dict[str, Optional[pd.DataFrame]] = {}
-    for t in tickers:
-        cached_df: Optional[pd.DataFrame] = None
-        if not force_refresh:
-            try:
-                cached_df, _ = load_cached(t, interval)  # type: ignore[misc]
-            except Exception:
-                cached_df = None
-        cache_map[t] = cached_df
-        if force_refresh:
-            to_fetch.append(t)
-            continue
-        if cached_df is None or cached_df.empty:
-            to_fetch.append(t)
-            continue
-        fetch_start = _next_fetch_start(cached_df)
-        if fetch_start > end_date:
-            if cached_df is not None and not cached_df.empty:
-                frames[t] = cached_df
-            continue
-        to_fetch.append(t)
-
-    # Parallel fetch for missing/incremental updates
-    def _fetch_and_merge(t: str) -> Optional[pd.DataFrame]:
-        cached_df = cache_map.get(t)
-        fetch_start = _next_fetch_start(cached_df)
-        if fetch_start > end_date:
-            return cached_df
-        df_new = download_with_retry(
-            t,
-            start=fetch_start,
-            end=end_date + timedelta(days=1),
+        async_request = downloaders.AsyncDownloadRequest(
+            tickers=tickers,
             interval=interval,
-            auto_adjust=False,
-            progress=False,
-            prepost=prepost,
+            start=async_start,
+            end=async_end,
+            max_workers=max_workers,
+            datasource_factory=_datasource_factory,
         )
-        if isinstance(df_new.columns, pd.MultiIndex):
-            df_new.columns = df_new.columns.droplevel(1)
-        if not isinstance(df_new.index, pd.DatetimeIndex):
-            df_new.index = pd.to_datetime(df_new.index)
-        df_new = df_new.sort_index()
-        merged = merge_incremental(cached_df, df_new) if (cached_df is not None and not cached_df.empty) else df_new  # type: ignore[misc]
-        if merged is None or merged.empty:
-            return cached_df
-        try:
-            save_cache(t, interval, merged, source="yahoo")  # type: ignore[misc]
-        except Exception:
-            pass
-        return merged
+        async_result = asyncio.run(downloaders._download_async(async_request))
+        return async_result.to_dataframe(trim_start=start_dt)
 
-    if to_fetch:
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            fut_map = {pool.submit(_fetch_and_merge, t): t for t in to_fetch}
-            for fut in as_completed(fut_map):
-                t = fut_map[fut]
-                try:
-                    df_merged = fut.result()
-                    if df_merged is not None and not df_merged.empty:
-                        frames[t] = df_merged
-                except Exception:
-                    # Leave missing tickers out; downstream will drop empty columns
-                    continue
+    if not use_cache or load_cached is None or save_cache is None or merge_incremental is None:
+        batch_result = downloaders._download_batch(batch_request, download_with_retry)
+        return batch_result.to_dataframe(trim_start=start_dt)
+
+    cache_end_date = date.today()
+    cache_start_date = cache_end_date - timedelta(days=lookback_days * 2)
+    cache_plan = downloaders._plan_cache_fetch(
+        tickers=tickers,
+        interval=interval,
+        start_date=cache_start_date,
+        end_date=cache_end_date,
+        force_refresh=force_refresh,
+        load_cached=load_cached,  # type: ignore[misc]
+        full_backfill_start_fn=full_backfill_start,
+    )
+
+    frames: Dict[str, pd.DataFrame] = dict(cache_plan.frames)
+
+    cache_result = downloaders._execute_cache_fetch(
+        cache_plan,
+        download_with_retry,
+        prepost=prepost,
+        max_workers=max_workers,
+        save_cache=save_cache,  # type: ignore[misc]
+        merge_incremental=merge_incremental,  # type: ignore[misc]
+    )
+    frames.update(cache_result.frames)
 
     if not frames:
-        return _batch_download()
+        batch_result = downloaders._download_batch(batch_request, download_with_retry)
+        return batch_result.to_dataframe(trim_start=start_dt)
 
-    # Build MultiIndex columns with level 0 as OHLC field and level 1 as ticker
-    # Concat with keys=tickers gives level0=ticker; swap so field is level0
-    combined = pd.concat(frames, axis=1)  # level0=ticker
-    combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
+    fingerprint_plan = downloaders._plan_fingerprint_refresh(frames, lookback_days=lookback_days)
+    fingerprint_result = downloaders._execute_fingerprint_refresh(
+        fingerprint_plan,
+        download_with_retry=download_with_retry,
+        interval=interval,
+        prepost=prepost,
+        save_cache=save_cache,  # type: ignore[misc]
+        max_workers=max_workers,
+        start_date=cache_plan.start_date,
+        end_date=cache_plan.end_date,
+    )
+    frames.update(fingerprint_result.frames)
 
-    # Optional sanity check: detect clusters of identical recent price series
-    try:
-        lvl0 = list(combined.columns.get_level_values(0))
-        field = "Adj Close" if "Adj Close" in lvl0 else ("Close" if "Close" in lvl0 else None)
-        if field is not None:
-            wide = combined[field]
-            # Build fingerprints for last ~60 rows
-            fp_map: Dict[str, List[str]] = {}
-            tail_n = min(60, max(5, lookback_days // 4))
-            for t in wide.columns:
-                s = wide[t].tail(tail_n).astype(float)
-                if s.dropna().empty:
-                    continue
-                # Fill NaNs for stable hashing
-                s = s.ffill().bfill()
-                h = hashlib.sha1(s.to_numpy().tobytes()).hexdigest()
-                fp_map.setdefault(h, []).append(t)
-            # Any suspicious clusters? (size >= 3)
-            suspects = [tick for group in fp_map.values() if len(group) >= 3 for tick in group]
-            if suspects:
-                # Force refresh suspects in parallel, ignore cache
-                def _force_refresh_one(t: str) -> Optional[pd.DataFrame]:
-                    df_new = download_with_retry(
-                        t,
-                        start=start_date,
-                        end=end_date + timedelta(days=1),
-                        interval=interval,
-                        auto_adjust=False,
-                        progress=False,
-                        prepost=prepost,
-                    )
-                    if isinstance(df_new.columns, pd.MultiIndex):
-                        df_new.columns = df_new.columns.droplevel(1)
-                    if not isinstance(df_new.index, pd.DatetimeIndex):
-                        df_new.index = pd.to_datetime(df_new.index)
-                    df_new = df_new.sort_index()
-                    if df_new.empty:
-                        return None
-                    try:
-                        save_cache(t, interval, df_new, source="yahoo")  # type: ignore[misc]
-                    except Exception:
-                        pass
-                    return df_new
-
-                with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                    fut_map = {pool.submit(_force_refresh_one, t): t for t in set(suspects)}
-                    for fut in as_completed(fut_map):
-                        t = fut_map[fut]
-                        try:
-                            df_new = fut.result()
-                            if df_new is not None:
-                                frames[t] = df_new
-                        except Exception:
-                            continue
-                combined = pd.concat(frames, axis=1)
-                combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
-    except Exception:
-        # Non-fatal: if detection fails, proceed with current combined
-        pass
-
-    # Trim to the lookback window
-    combined = combined.loc[combined.index >= pd.to_datetime(start_dt)]
-    return combined.dropna(how="all")
+    return downloaders.build_combined_dataframe(frames, trim_start=start_dt)
 
 
 @contextmanager

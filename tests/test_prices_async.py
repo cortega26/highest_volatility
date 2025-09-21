@@ -3,6 +3,7 @@ import pandas as pd
 from highest_volatility.ingest import prices
 from datetime import date, datetime
 from src.config.interval_policy import full_backfill_start
+from src.highest_volatility.ingest import downloaders
 
 
 class FakeAsyncDS:
@@ -86,4 +87,15 @@ def test_download_price_history_async_uses_60m_alias(monkeypatch):
     assert end_arg == FrozenDate.today()
     assert interval_arg == "60m"
     assert not df.empty
+
+
+def test_async_download_result_dataframe():
+    frames = {
+        "AAA": pd.DataFrame({"Adj Close": [1.0]}, index=pd.to_datetime(["2020-01-02"])),
+        "BBB": pd.DataFrame({"Adj Close": [2.0]}, index=pd.to_datetime(["2020-01-03"])),
+    }
+    result = downloaders.AsyncDownloadResult(frames=frames)
+    combined = result.to_dataframe(trim_start=pd.Timestamp("2020-01-02"))
+    assert ("Adj Close", "AAA") in combined.columns
+    assert ("Adj Close", "BBB") in combined.columns
 

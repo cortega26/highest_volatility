@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from src.highest_volatility.ingest import prices
+from src.highest_volatility.ingest import downloaders
 
 
 def _make_chunk_frame(tickers: List[str]) -> pd.DataFrame:
@@ -43,7 +44,7 @@ def test_batch_download_submits_multiple_chunks():
             return future
 
     with patch(
-        "src.highest_volatility.ingest.prices.ThreadPoolExecutor",
+        "src.highest_volatility.ingest.downloaders.ThreadPoolExecutor",
         side_effect=lambda max_workers: ImmediateExecutor(max_workers),
     ):
         with patch("src.highest_volatility.ingest.prices.yf.download", side_effect=fake_download):
@@ -93,3 +94,12 @@ def test_concurrent_batches_reduce_latency():
         concurrent_duration = time.perf_counter() - start_concurrent
 
     assert concurrent_duration < serial_duration * 0.75
+
+
+def test_batch_download_result_dataframe_trims():
+    frames = {"AAA": pd.DataFrame({"Adj Close": [1.0, 2.0]}, index=pd.to_datetime(["2020-01-02", "2020-01-04"]))}
+    result = downloaders.BatchDownloadResult(frames=frames, failed=[])
+
+    combined = result.to_dataframe(trim_start=pd.Timestamp("2020-01-03"))
+    assert list(combined.index) == [pd.Timestamp("2020-01-04")]
+    assert ("Adj Close", "AAA") in combined.columns

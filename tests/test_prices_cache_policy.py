@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 
 from highest_volatility.ingest import prices
+from src.highest_volatility.ingest import downloaders
 
 
 def _setup_time(monkeypatch, today: date) -> None:
@@ -152,3 +153,44 @@ def test_incremental_intraday_fetch_extends_same_day(monkeypatch):
     assert ("Adj Close", "AAA") in df.columns
     result_series = df["Adj Close"]["AAA"]
     assert pd.Timestamp(f"{today} 09:32") in result_series.index
+
+
+def test_plan_cache_fetch_force_refresh():
+    today = date(2024, 5, 1)
+
+    def fake_full_backfill(interval: str, today: date | None = None) -> date:
+        return date(2024, 1, 1)
+
+    cached_df = pd.DataFrame({"Adj Close": [1.0]}, index=pd.date_range("2024-04-30", periods=1))
+
+    def fake_load_cached(ticker: str, interval: str):
+        assert interval == "1d"
+        return cached_df.copy(), None
+
+    plan = downloaders._plan_cache_fetch(
+        tickers=["AAA"],
+        interval="1d",
+        start_date=date(2024, 4, 1),
+        end_date=today,
+        force_refresh=True,
+        load_cached=fake_load_cached,
+        full_backfill_start_fn=fake_full_backfill,
+    )
+
+    assert plan.to_fetch == ["AAA"]
+    assert plan.fetch_starts["AAA"] == date(2024, 1, 1)
+
+
+def test_plan_fingerprint_refresh_detects_clusters():
+    idx = pd.date_range("2024-01-01", periods=10, freq="D")
+    base = pd.DataFrame({"Adj Close": range(10)}, index=idx)
+    frames = {
+        "AAA": base.copy(),
+        "BBB": base.copy(),
+        "CCC": base.copy(),
+        "DDD": pd.DataFrame({"Adj Close": range(10, 20)}, index=idx),
+    }
+
+    plan = downloaders._plan_fingerprint_refresh(frames, lookback_days=40)
+    assert set(plan.suspects) == {"AAA", "BBB", "CCC"}
+    assert plan.field == "Adj Close"
