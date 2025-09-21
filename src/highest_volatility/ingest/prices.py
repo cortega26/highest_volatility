@@ -91,7 +91,7 @@ def download_price_history(
     )
 
     if matrix_mode == "batch":
-        batch_result = downloaders._download_batch(batch_request, download_with_retry)
+        batch_result = downloaders.download_batch(batch_request, download_with_retry)
         return batch_result.to_dataframe(trim_start=start_dt)
 
     if matrix_mode == "async":
@@ -111,16 +111,16 @@ def download_price_history(
             max_workers=max_workers,
             datasource_factory=_datasource_factory,
         )
-        async_result = asyncio.run(downloaders._download_async(async_request))
+        async_result = asyncio.run(downloaders.download_async(async_request))
         return async_result.to_dataframe(trim_start=start_dt)
 
     if not use_cache or load_cached is None or save_cache is None or merge_incremental is None:
-        batch_result = downloaders._download_batch(batch_request, download_with_retry)
+        batch_result = downloaders.download_batch(batch_request, download_with_retry)
         return batch_result.to_dataframe(trim_start=start_dt)
 
     cache_end_date = date.today()
     cache_start_date = cache_end_date - timedelta(days=lookback_days * 2)
-    cache_plan = downloaders._plan_cache_fetch(
+    cache_plan = downloaders.plan_cache_fetch(
         tickers=tickers,
         interval=interval,
         start_date=cache_start_date,
@@ -132,7 +132,7 @@ def download_price_history(
 
     frames: Dict[str, pd.DataFrame] = dict(cache_plan.frames)
 
-    cache_result = downloaders._execute_cache_fetch(
+    cache_result = downloaders.execute_cache_fetch(
         cache_plan,
         download_with_retry,
         prepost=prepost,
@@ -143,11 +143,11 @@ def download_price_history(
     frames.update(cache_result.frames)
 
     if not frames:
-        batch_result = downloaders._download_batch(batch_request, download_with_retry)
+        batch_result = downloaders.download_batch(batch_request, download_with_retry)
         return batch_result.to_dataframe(trim_start=start_dt)
 
-    fingerprint_plan = downloaders._plan_fingerprint_refresh(frames, lookback_days=lookback_days)
-    fingerprint_result = downloaders._execute_fingerprint_refresh(
+    fingerprint_plan = downloaders.plan_fingerprint_refresh(frames, lookback_days=lookback_days)
+    fingerprint_result = downloaders.execute_fingerprint_refresh(
         fingerprint_plan,
         download_with_retry=download_with_retry,
         interval=interval,
