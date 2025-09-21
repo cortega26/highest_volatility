@@ -35,6 +35,7 @@ from highest_volatility.app.cli import (
 )
 from highest_volatility.compute.metrics import METRIC_REGISTRY
 from highest_volatility.errors import (
+    ComputeError,
     ErrorCode,
     HVError,
     IntegrationError,
@@ -299,7 +300,7 @@ def metrics_endpoint(
     except Exception as exc:
         error = wrap_error(
             exc,
-            IntegrationError,
+            ComputeError,
             message="Metric computation failed",
             context={"metric": met, "tickers": len(ticker_list)},
         )
