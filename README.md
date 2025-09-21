@@ -10,8 +10,18 @@ universe. Build and run it with Docker:
 
 ```bash
 docker build -t hv-api .
-docker run -p 8000:8000 hv-api
+docker run --rm -p 8000:8000 hv-api
 ```
+
+Runtime notes:
+
+- The container publishes the API on port ``8000``; map it to a host port as
+  needed (for example ``-p 8000:8000``).
+- ``PYTHONPATH`` is set to ``/app/src`` so ``highest_volatility`` can be
+  imported without installing the package separately.
+- Override any FastAPI settings with ``HV_``-prefixed environment variables.
+  Common examples include ``HV_REDIS_URL`` (default ``redis://localhost:6379/0``)
+  and ``HV_CACHE_REFRESH_INTERVAL``.
 
 The service provides two endpoints:
 
