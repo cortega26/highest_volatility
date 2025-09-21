@@ -167,7 +167,7 @@ def test_plan_cache_fetch_force_refresh():
         assert interval == "1d"
         return cached_df.copy(), None
 
-    plan = downloaders._plan_cache_fetch(
+    plan = downloaders.plan_cache_fetch(
         tickers=["AAA"],
         interval="1d",
         start_date=date(2024, 4, 1),
@@ -191,6 +191,6 @@ def test_plan_fingerprint_refresh_detects_clusters():
         "DDD": pd.DataFrame({"Adj Close": range(10, 20)}, index=idx),
     }
 
-    plan = downloaders._plan_fingerprint_refresh(frames, lookback_days=40)
+    plan = downloaders.plan_fingerprint_refresh(frames, lookback_days=40)
     assert set(plan.suspects) == {"AAA", "BBB", "CCC"}
     assert plan.field == "Adj Close"

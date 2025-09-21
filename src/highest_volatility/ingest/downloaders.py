@@ -1,4 +1,8 @@
-"""Reusable helpers for price history downloads."""
+"""Reusable helpers for price history downloads.
+
+The helpers exported from this module follow public snake_case names. Legacy
+aliases with leading underscores remain available for backwards compatibility.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,24 @@ import pandas as pd
 
 
 DownloadFn = Callable[..., pd.DataFrame]
+
+
+__all__ = [
+    "BatchDownloadRequest",
+    "BatchDownloadResult",
+    "AsyncDownloadRequest",
+    "AsyncDownloadResult",
+    "CacheFetchPlan",
+    "CacheFetchResult",
+    "FingerprintPlan",
+    "FingerprintRefreshResult",
+    "download_batch",
+    "download_async",
+    "plan_cache_fetch",
+    "execute_cache_fetch",
+    "plan_fingerprint_refresh",
+    "execute_fingerprint_refresh",
+]
 
 
 @dataclass(frozen=True)
@@ -47,8 +69,13 @@ class BatchDownloadResult:
         return combined.dropna(how="all")
 
 
-def _download_batch(request: BatchDownloadRequest, download_with_retry: DownloadFn) -> BatchDownloadResult:
-    """Download price history using chunked yfinance calls."""
+def download_batch(
+    request: BatchDownloadRequest, download_with_retry: DownloadFn
+) -> BatchDownloadResult:
+    """Download price history using chunked yfinance calls.
+
+    Deprecated alias: :func:`_download_batch`.
+    """
 
     chunks = [
         list(request.tickers[i : i + request.chunk_size])
@@ -166,8 +193,11 @@ class AsyncDownloadResult:
         return combined.dropna(how="all")
 
 
-async def _download_async(request: AsyncDownloadRequest) -> AsyncDownloadResult:
-    """Fetch price history concurrently using an async datasource."""
+async def download_async(request: AsyncDownloadRequest) -> AsyncDownloadResult:
+    """Fetch price history concurrently using an async datasource.
+
+    Deprecated alias: :func:`_download_async`.
+    """
 
     datasource = request.datasource_factory()
     semaphore = asyncio.Semaphore(request.max_workers)
@@ -206,7 +236,7 @@ class CacheFetchPlan:
     fetch_starts: Dict[str, date]
 
 
-def _plan_cache_fetch(
+def plan_cache_fetch(
     *,
     tickers: Sequence[str],
     interval: str,
@@ -216,6 +246,10 @@ def _plan_cache_fetch(
     load_cached: Callable[[str, str], tuple[Optional[pd.DataFrame], Any]],
     full_backfill_start_fn: Callable[[str, Optional[date]], date],
 ) -> CacheFetchPlan:
+    """Build a cache refresh plan for the requested tickers.
+
+    Deprecated alias: :func:`_plan_cache_fetch`.
+    """
     frames: Dict[str, pd.DataFrame] = {}
     to_fetch: List[str] = []
     cache_map: Dict[str, Optional[pd.DataFrame]] = {}
@@ -273,7 +307,7 @@ class CacheFetchResult:
     frames: Dict[str, pd.DataFrame]
 
 
-def _execute_cache_fetch(
+def execute_cache_fetch(
     plan: CacheFetchPlan,
     download_with_retry: DownloadFn,
     *,
@@ -282,6 +316,10 @@ def _execute_cache_fetch(
     save_cache: Callable[[str, str, pd.DataFrame, str], None],
     merge_incremental: Optional[Callable[[Optional[pd.DataFrame], pd.DataFrame], Optional[pd.DataFrame]]],
 ) -> CacheFetchResult:
+    """Execute a cache fetch plan and persist refreshed frames.
+
+    Deprecated alias: :func:`_execute_cache_fetch`.
+    """
     frames: Dict[str, pd.DataFrame] = {}
 
     def _fetch_and_merge(ticker: str) -> Optional[pd.DataFrame]:
@@ -343,9 +381,13 @@ class FingerprintPlan:
     tail_window: int
 
 
-def _plan_fingerprint_refresh(
+def plan_fingerprint_refresh(
     frames: Mapping[str, pd.DataFrame], *, lookback_days: int
 ) -> FingerprintPlan:
+    """Identify tickers that share suspiciously similar price fingerprints.
+
+    Deprecated alias: :func:`_plan_fingerprint_refresh`.
+    """
     try:
         combined = pd.concat(frames, axis=1)
         combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
@@ -376,7 +418,7 @@ class FingerprintRefreshResult:
     frames: Dict[str, pd.DataFrame]
 
 
-def _execute_fingerprint_refresh(
+def execute_fingerprint_refresh(
     plan: FingerprintPlan,
     *,
     download_with_retry: DownloadFn,
@@ -387,6 +429,10 @@ def _execute_fingerprint_refresh(
     start_date: date,
     end_date: date,
 ) -> FingerprintRefreshResult:
+    """Force-refresh tickers flagged by :func:`plan_fingerprint_refresh`.
+
+    Deprecated alias: :func:`_execute_fingerprint_refresh`.
+    """
     frames: Dict[str, pd.DataFrame] = {}
 
     if not plan.suspects:
@@ -441,4 +487,14 @@ def build_combined_dataframe(
     if trim_start is not None:
         combined = combined.loc[combined.index >= pd.to_datetime(trim_start)]
     return combined.dropna(how="all")
+
+
+# Deprecated aliases retained for backwards compatibility with callers that
+# still reference the private helper names.
+_download_batch = download_batch
+_download_async = download_async
+_plan_cache_fetch = plan_cache_fetch
+_execute_cache_fetch = execute_cache_fetch
+_plan_fingerprint_refresh = plan_fingerprint_refresh
+_execute_fingerprint_refresh = execute_fingerprint_refresh
 
