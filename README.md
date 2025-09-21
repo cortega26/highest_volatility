@@ -132,8 +132,10 @@ configured with the ``HV_CACHE_REFRESH_INTERVAL`` environment variable and
 defaults to once every 24 hours.
 
 A helper script is provided to refresh cached price data for all locally stored
-tickers.  It iterates over the tickers under `.cache/prices/<interval>` and
-updates each one sequentially.
+tickers. It iterates over the tickers under `cache/prices/<interval>` and
+updates each one sequentially. Each ticker's Parquet file and JSON manifest
+live side by side in that directory (for example, `AAPL.parquet` and
+`AAPL.json`), matching the `_paths` helper in `src/cache/store.py`.
 
 Run the scheduler from the repository root:
 
