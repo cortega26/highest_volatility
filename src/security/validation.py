@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import List
+from typing import Any, List
 
 from highest_volatility.errors import ValidationError
 
@@ -26,10 +26,12 @@ def sanitize_single_ticker(ticker: str) -> str:
     return normalized
 
 
-def sanitize_multiple_tickers(raw: str) -> List[str]:
+def sanitize_multiple_tickers(raw: str, *, max_tickers: int | None = None) -> List[str]:
     tickers = [sanitize_single_ticker(part) for part in raw.split(",") if part.strip()]
     if not tickers:
         raise SanitizationError("At least one ticker must be supplied.", field="tickers")
+    if max_tickers is not None and len(tickers) > max_tickers:
+        raise SanitizationError("Too many tickers supplied.", field="tickers")
     return tickers
 
 
@@ -51,4 +53,32 @@ def sanitize_metric(metric: str) -> str:
     normalized = metric.strip().lower()
     if not normalized or not re.fullmatch(r"[a-z0-9_]+", normalized):
         raise SanitizationError("Metric key contains invalid characters.", field="metric")
+    return normalized
+
+
+def sanitize_positive_int(
+    value: Any,
+    *,
+    field: str,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
+    """Return ``value`` as a bounded positive integer or raise ``SanitizationError``."""
+
+    if isinstance(value, bool):
+        raise SanitizationError("Boolean value is not allowed.", field=field)
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        raise SanitizationError("Value must be an integer.", field=field) from None
+    if normalized < minimum:
+        raise SanitizationError(
+            f"Value must be at least {minimum}.",
+            field=field,
+        )
+    if maximum is not None and normalized > maximum:
+        raise SanitizationError(
+            f"Value must not exceed {maximum}.",
+            field=field,
+        )
     return normalized

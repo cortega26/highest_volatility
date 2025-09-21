@@ -49,6 +49,7 @@ from src.security.validation import (
     sanitize_interval,
     sanitize_metric,
     sanitize_multiple_tickers,
+    sanitize_positive_int,
 )
 
 
@@ -80,6 +81,14 @@ settings = Settings()
 
 
 logger = get_logger(__name__, component="rest_api")
+
+
+REQUEST_TICKER_LIMIT = 100
+LOOKBACK_MIN_DAYS = 30
+LOOKBACK_MAX_DAYS = 2000
+MIN_DAYS_MINIMUM = 10
+TOP_N_MINIMUM = 10
+TOP_N_MAXIMUM = 500
 
 
 _STATUS_BY_CODE = {
@@ -167,7 +176,15 @@ def universe_endpoint(
 ):
     """Return a validated ticker universe."""
 
-    limit = top_n or settings.top_n
+    try:
+        limit = sanitize_positive_int(
+            top_n if top_n is not None else settings.top_n,
+            field="top_n",
+            minimum=TOP_N_MINIMUM,
+            maximum=TOP_N_MAXIMUM,
+        )
+    except SanitizationError as exc:
+        _handle_error(exc, event="universe_validation", endpoint="universe")
     try:
         tickers, fortune = build_universe(limit, validate=True)
     except HVError as error:  # pragma: no cover - defensive
@@ -195,8 +212,15 @@ def prices_endpoint(
     """Return price history for ``tickers``."""
 
     try:
-        ticker_list = sanitize_multiple_tickers(tickers)
-        lb = lookback_days or settings.lookback_days
+        ticker_list = sanitize_multiple_tickers(
+            tickers, max_tickers=REQUEST_TICKER_LIMIT
+        )
+        lb = sanitize_positive_int(
+            lookback_days if lookback_days is not None else settings.lookback_days,
+            field="lookback_days",
+            minimum=LOOKBACK_MIN_DAYS,
+            maximum=LOOKBACK_MAX_DAYS,
+        )
         iv = sanitize_interval(interval or settings.interval)
     except SanitizationError as exc:
         _handle_error(exc, event="prices_validation", endpoint="prices")
@@ -231,13 +255,25 @@ def metrics_endpoint(
     """Compute ``metric`` for ``tickers``."""
 
     try:
-        ticker_list = sanitize_multiple_tickers(tickers)
+        ticker_list = sanitize_multiple_tickers(
+            tickers, max_tickers=REQUEST_TICKER_LIMIT
+        )
         met = sanitize_metric(metric or settings.metric)
-        lb = lookback_days or settings.lookback_days
+        lb = sanitize_positive_int(
+            lookback_days if lookback_days is not None else settings.lookback_days,
+            field="lookback_days",
+            minimum=LOOKBACK_MIN_DAYS,
+            maximum=LOOKBACK_MAX_DAYS,
+        )
         iv = sanitize_interval(interval or settings.interval)
+        md = sanitize_positive_int(
+            min_days if min_days is not None else settings.min_days,
+            field="min_days",
+            minimum=MIN_DAYS_MINIMUM,
+            maximum=lb,
+        )
     except SanitizationError as exc:
         _handle_error(exc, event="metrics_validation", endpoint="metrics")
-    md = min_days or settings.min_days
     if met not in METRIC_REGISTRY:
         error = HVError(
             f"Unknown metric '{met}'",
