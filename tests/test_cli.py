@@ -1,5 +1,8 @@
 import pandas as pd
+import pytest
 import re
+
+from argparse import Namespace
 
 from highest_volatility.app import cli
 
@@ -14,6 +17,90 @@ def _mock_data():
         {"rank": [1, 2], "company": ["A Co", "B Co"], "ticker": ["A", "B"]}
     )
     return prices, fortune
+
+
+def _make_args(**overrides) -> Namespace:
+    base = vars(cli.parse_args([]))
+    base.update(overrides)
+    return Namespace(**base)
+
+
+def test_build_universe_step_returns_dataclass(monkeypatch):
+    fortune = pd.DataFrame({"ticker": ["A"], "company": ["A Co"], "rank": [1]})
+    monkeypatch.setattr(cli, "build_universe", lambda *_, **__: (["A"], fortune))
+    args = _make_args(top_n=1)
+
+    result = cli._build_universe_step(args)
+
+    assert result.tickers == ["A"]
+    assert result.fortune.equals(fortune)
+    assert result.duration >= 0
+
+
+def test_download_prices_step_sanitizes(monkeypatch):
+    idx = pd.date_range("2020-01-01", periods=5)
+    raw_prices = pd.DataFrame(
+        {
+            ("Adj Close", "A"): [1, 2, 3, 4, 5],
+            ("Adj Close", "B"): [1, 2, 3, 4, 5],
+            ("Adj Close", "C"): [1, None, None, None, None],
+        },
+        index=idx,
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "download_price_history",
+        lambda *_, **__: raw_prices,
+    )
+
+    args = _make_args(min_days=3)
+    result = cli._download_prices_step(args, ["A", "B", "C"])
+
+    assert result.tickers == ["A"]
+    assert result.close.columns.tolist() == ["A"]
+    assert "C" in result.dropped_short
+    assert result.duration >= 0
+
+
+def test_compute_metrics_step_uses_registry(monkeypatch):
+    args = _make_args(metric="cc_vol", min_days=2)
+    prices = pd.DataFrame({("Adj Close", "A"): [1, 2, 3]}, index=pd.date_range("2020-01-01", periods=3))
+    close = prices["Adj Close"]
+    download_result = cli.DownloadPricesResult(
+        prices=prices,
+        close=close,
+        tickers=["A"],
+        dropped_short=[],
+        dropped_duplicate=[],
+        duration=0.0,
+    )
+    fortune = pd.DataFrame({"ticker": ["A"], "company": ["A Co"], "rank": [1]})
+
+    def fake_metric(*_, **__):
+        return pd.DataFrame({"ticker": ["A"], "cc_vol": [0.5]})
+
+    monkeypatch.setitem(cli.METRIC_REGISTRY, "cc_vol", fake_metric)
+
+    result = cli._compute_metrics_step(args, download_result, fortune)
+
+    assert pytest.approx(result.result.loc["A", "cc_vol"]) == 0.5
+    assert result.duration >= 0
+
+
+def test_render_output_step_exports(monkeypatch, tmp_path, capsys):
+    args = _make_args(print_top=1, output_csv=tmp_path / "out.csv")
+    df = pd.DataFrame({"rank": [1], "company": ["A"], "cc_vol": [0.1]}, index=["A"])
+    compute_result = cli.ComputeMetricsResult(result=df, duration=0.0)
+
+    monkeypatch.setattr(cli, "save_sqlite", lambda *_, **__: pytest.fail("should not be called"))
+
+    result = cli._render_output_step(args, compute_result)
+
+    captured = capsys.readouterr().out
+    assert "cc_vol" in captured
+    assert (tmp_path / "out.csv").exists()
+    assert result.duration >= 0
 
 
 def test_cli_rank_by_sharpe_ratio(monkeypatch, capsys):

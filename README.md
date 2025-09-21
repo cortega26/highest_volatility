@@ -67,6 +67,21 @@ selected with the ``--metric`` option:
 - ``var`` – value at risk (VaR)
 - ``sortino`` – annualised Sortino ratio
 
+## CLI Internals & Rollback Plan
+
+The CLI now orchestrates four focused steps – universe construction, price
+downloads (with sanitisation via ``highest_volatility.app.sanitization``),
+metric computation, and result rendering. Each step returns a small data class
+so the workflow can be unit tested in isolation and downstream tooling can
+reuse the intermediate structures.
+
+To roll back to the previous monolithic ``main`` implementation, restore
+``src/highest_volatility/app/cli.py`` from the last release tag or a specific
+commit and remove ``src/highest_volatility/app/sanitization.py``. For example,
+``git checkout <prior-tag> -- src/highest_volatility/app/cli.py`` followed by
+``git rm src/highest_volatility/app/sanitization.py`` reverts the refactor
+while keeping the rest of the repository unchanged.
+
 ## Streamlit App
 
 An interactive dashboard is available via Streamlit. It mirrors the CLI
