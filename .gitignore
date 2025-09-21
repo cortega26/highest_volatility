@@ -8,6 +8,7 @@ __pycache__/
 .idea/
 *.pyc
 cache/
+!src/highest_volatility/cache/
 .cache/
 src/.cache/
 mypy.ini

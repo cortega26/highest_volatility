@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import app as cache_app
-from src.highest_volatility.app.api import app as hv_app
+from highest_volatility.api import app as cache_app
+from highest_volatility.app.api import app as hv_app
 
 
 def test_prices_rejects_traversal() -> None:
@@ -36,7 +36,7 @@ def test_metrics_rejects_header_injection() -> None:
 
 def test_prices_rejects_excessive_lookback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "src.highest_volatility.app.api.download_price_history",
+        "highest_volatility.app.api.download_price_history",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("download_price_history should not be invoked")
         ),
@@ -51,7 +51,7 @@ def test_prices_rejects_excessive_lookback(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_metrics_rejects_excessive_min_days(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "src.highest_volatility.app.api.download_price_history",
+        "highest_volatility.app.api.download_price_history",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("download_price_history should not be invoked")
         ),
@@ -66,7 +66,7 @@ def test_metrics_rejects_excessive_min_days(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_prices_rejects_excessive_ticker_count(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "src.highest_volatility.app.api.download_price_history",
+        "highest_volatility.app.api.download_price_history",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("download_price_history should not be invoked")
         ),

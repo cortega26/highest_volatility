@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.security.validation import SanitizationError, sanitize_interval
+from highest_volatility.security.validation import SanitizationError, sanitize_interval
 
 
 @pytest.mark.parametrize(

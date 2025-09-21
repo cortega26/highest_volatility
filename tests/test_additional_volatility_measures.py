@@ -170,7 +170,6 @@ def _make_multiindex_price_frame(seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     index = pd.date_range("2022-01-01", periods=12, freq="B")
     tickers = ["AAA", "BBB"]
-    arrays = [[], []]
     data: dict[tuple[str, str], np.ndarray] = {}
     for ticker in tickers:
         base = 100 + 10 * rng.random()

@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from ingest.fetch_async import fetch_many_async
+from highest_volatility.ingest.fetch_async import fetch_many_async
 from highest_volatility.app import api as hv_api
 from highest_volatility.app.api import app as hv_app
 from highest_volatility.errors import (

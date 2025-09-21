@@ -3,6 +3,16 @@
 Tools for exploring equity price volatility.  The project includes utilities for
 loading and caching price history.
 
+## Module Layout
+
+Reusable components now live under the unified :mod:`highest_volatility`
+namespace. For example, caching helpers are available from
+``highest_volatility.cache`` and security sanitizers reside in
+``highest_volatility.security``. The legacy ``src.*`` entry points remain
+available via :mod:`sys.modules` aliases so external consumers can migrate
+incrementally, but internal imports and documentation reference the consolidated
+package.
+
 ## Data API
 
 A lightweight FastAPI service exposes cached price data and the Fortune ticker
@@ -133,7 +143,7 @@ A helper script is provided to refresh cached price data for all locally stored
 tickers. It iterates over the tickers under `cache/prices/<interval>` and
 updates each one sequentially. Each ticker's Parquet file and JSON manifest
 live side by side in that directory (for example, `AAPL.parquet` and
-`AAPL.json`), matching the `_paths` helper in `src/cache/store.py`.
+`AAPL.json`), matching the `_paths` helper in `highest_volatility/cache/store.py`.
 
 Run the scheduler from the repository root:
 

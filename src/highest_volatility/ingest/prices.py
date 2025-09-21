@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional
+from typing import Dict, List
 from contextlib import contextmanager
 import logging
 import asyncio
@@ -13,18 +13,18 @@ import yfinance as yf
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 try:  # pragma: no cover - optional dependency
-    from src.datasource.yahoo_async import YahooAsyncDataSource  # type: ignore
+    from highest_volatility.datasource.yahoo_async import YahooAsyncDataSource  # type: ignore
 except Exception:  # pragma: no cover - optional
     YahooAsyncDataSource = None  # type: ignore
 
-from src.config.interval_policy import full_backfill_start
-from src.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
-from src.highest_volatility.ingest import downloaders
+from highest_volatility.config.interval_policy import full_backfill_start
+from highest_volatility.datasource.yahoo_http_async import YahooHTTPAsyncDataSource
+from highest_volatility.ingest import downloaders
 
 # Optional caching stack (present in this repo under src/cache and src/ingest)
 try:  # pragma: no cover - optional import path
-    from src.cache.store import load_cached, save_cache  # type: ignore
-    from src.cache.merge import merge_incremental  # type: ignore
+    from highest_volatility.cache.store import load_cached, save_cache  # type: ignore
+    from highest_volatility.cache.merge import merge_incremental  # type: ignore
 except Exception:  # pragma: no cover - optional
     load_cached = save_cache = merge_incremental = None  # type: ignore
 

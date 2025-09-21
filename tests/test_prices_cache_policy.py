@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from highest_volatility.ingest import prices
-from src.highest_volatility.ingest import downloaders
+from highest_volatility.ingest import downloaders
 
 
 def _setup_time(monkeypatch, today: date) -> None:

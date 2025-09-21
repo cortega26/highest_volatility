@@ -12,8 +12,8 @@ from io import BytesIO
 
 import pandas as pd
 import requests  # type: ignore[import]
-from src.highest_volatility.pipeline import validate_cache
-from src.security.validation import (
+from highest_volatility.pipeline import validate_cache
+from highest_volatility.security.validation import (
     SanitizationError,
     sanitize_interval,
     sanitize_single_ticker,
@@ -135,6 +135,3 @@ def save_cache(
     return manifest
 
 
-import sys as _sys
-
-_sys.modules.setdefault("cache.store", _sys.modules[__name__])
