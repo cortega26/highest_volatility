@@ -90,7 +90,7 @@ def _coerce(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     if isinstance(value, Mapping):
-        return {str(k): _coerce(v) for k, v in value.items()}
+        return sanitize_context(value)
     if isinstance(value, (list, tuple, set)):
         return [_coerce(v) for v in value]
     return repr(value)
@@ -103,11 +103,12 @@ def sanitize_context(context: Mapping[str, Any] | None) -> dict[str, Any]:
         return {}
     sanitized: dict[str, Any] = {}
     for key, value in context.items():
-        lowered = key.lower()
+        key_str = str(key)
+        lowered = key_str.lower()
         if any(token in lowered for token in _SENSITIVE_KEYS):
-            sanitized[key] = _REDACTED
+            sanitized[key_str] = _REDACTED
         else:
-            sanitized[key] = _coerce(value)
+            sanitized[key_str] = _coerce(value)
     return sanitized
 
 
