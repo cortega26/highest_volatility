@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional, Tuple, cast
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -56,8 +56,11 @@ def download_price_history(
         Data interval supported by Yahoo Finance (e.g. ``1d``, ``60m``, ``15m``).
     prepost:
         Include pre/post market data for intraday intervals.
+    max_workers:
+        Maximum number of threads used to download ticker chunks concurrently.
+        Set to ``1`` to run chunk downloads sequentially.
     chunk_sleep:
-        Optional pause in seconds between chunk downloads.
+        Optional pause in seconds between batches of concurrent chunk downloads.
     max_retries:
         Maximum retry attempts for failed downloads.
 
@@ -87,7 +90,16 @@ def download_price_history(
         failed: List[str] = []
 
         chunks = [tickers[i : i + CHUNK] for i in range(0, len(tickers), CHUNK)]
-        for chunk in chunks:
+        if not chunks:
+            return pd.DataFrame()
+
+        effective_workers = max(1, int(max_workers))
+        chunk_results: List[Tuple[int, Dict[str, pd.DataFrame], List[str]]] = []
+
+        def _handle_chunk(chunk_idx: int, chunk: List[str]) -> Tuple[int, Dict[str, pd.DataFrame], List[str]]:
+            local_success: Dict[str, pd.DataFrame] = {}
+            local_failed: List[str] = []
+
             df = download_with_retry(
                 " ".join(chunk),
                 start=start_dt,
@@ -98,8 +110,8 @@ def download_price_history(
                 prepost=prepost,
                 group_by="column",
             )
+
             if df is None or df.empty:
-                # Fallback to single ticker
                 for t in chunk:
                     d1 = download_with_retry(
                         t,
@@ -111,37 +123,49 @@ def download_price_history(
                         prepost=prepost,
                     )
                     if d1 is None or d1.empty:
-                        failed.append(t)
+                        local_failed.append(t)
                         continue
                     if isinstance(d1.columns, pd.MultiIndex):
                         d1 = d1.droplevel(1, axis=1)
-                    success[t] = d1.sort_index()
-                if chunk_sleep:
-                    time.sleep(chunk_sleep)
-                continue
+                    local_success[t] = d1.sort_index()
+                return chunk_idx, local_success, local_failed
 
-            # Split multi-ticker frame into per-ticker DataFrames
             if isinstance(df.columns, pd.MultiIndex):
                 for t in sorted(set(df.columns.get_level_values(1))):
                     try:
                         sub = df.xs(t, axis=1, level=1).dropna(how="all")
                         if not sub.empty:
-                            success[str(t)] = sub.sort_index()
+                            local_success[str(t)] = sub.sort_index()
                         else:
-                            failed.append(str(t))
+                            local_failed.append(str(t))
                     except Exception:
-                        failed.append(str(t))
+                        local_failed.append(str(t))
             else:
-                # Single ticker returned without MultiIndex
                 t = chunk[0]
                 sub = df.dropna(how="all")
                 if not sub.empty:
-                    success[t] = sub.sort_index()
+                    local_success[t] = sub.sort_index()
                 else:
-                    failed.append(t)
+                    local_failed.append(t)
 
+            return chunk_idx, local_success, local_failed
+
+        for batch_start in range(0, len(chunks), effective_workers):
+            batch_indices = list(range(batch_start, min(batch_start + effective_workers, len(chunks))))
+            batch_workers = min(len(batch_indices), effective_workers)
+            with ThreadPoolExecutor(max_workers=batch_workers) as executor:
+                future_map = {
+                    executor.submit(_handle_chunk, idx, chunks[idx]): idx for idx in batch_indices
+                }
+                for future in as_completed(future_map):
+                    chunk_results.append(future.result())
             if chunk_sleep:
                 time.sleep(chunk_sleep)
+
+        for _, chunk_success, chunk_failed in sorted(chunk_results, key=lambda item: item[0]):
+            for ticker, frame in chunk_success.items():
+                success[ticker] = frame
+            failed.extend(chunk_failed)
 
         if not success:
             return pd.DataFrame()
