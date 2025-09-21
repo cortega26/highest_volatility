@@ -181,15 +181,29 @@ def _load_universe(config: AnalysisConfig) -> UniverseData | None:
     return universe
 
 
+def _escape_spreadsheet_formula(value: object) -> object:
+    """Neutralise spreadsheet formulas by prefixing suspicious values."""
+
+    if not isinstance(value, str) or not value:
+        return value
+    first_char = value[0]
+    if first_char in {"=", "+", "-", "@"}:
+        return "'" + value
+    if first_char in {"\t", "\n"}:
+        return " " + value
+    return value
+
+
 def _render_universe_section(universe: UniverseData) -> None:
     view = universe.fortune_view()
     if view.empty:
         return
     st.subheader("Fortune universe")
     st.dataframe(view, use_container_width=True)
+    escaped_view = view.map(_escape_spreadsheet_formula)
     st.download_button(
         "Download universe (CSV)",
-        data=view.to_csv(index=False),
+        data=escaped_view.to_csv(index=False),
         file_name="fortune_universe.csv",
         mime="text/csv",
     )
@@ -249,9 +263,10 @@ def _render_metric_table(table: pd.DataFrame, metric_key: str) -> None:
         axis=1,
     )
     st.dataframe(styled_table, use_container_width=True)
+    escaped_table = table.map(_escape_spreadsheet_formula)
     st.download_button(
         "Download metric ranking (CSV)",
-        data=table.to_csv(index=False),
+        data=escaped_table.to_csv(index=False),
         file_name=f"metric_ranking_{metric_key}.csv",
         mime="text/csv",
     )
