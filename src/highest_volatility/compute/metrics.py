@@ -333,22 +333,32 @@ def additional_volatility_measures(
     interval: str = "1d",
     ewma_lambda: float = 0.94,
 ) -> pd.DataFrame:
-    """Compute a selection of volatility estimators for each ticker."""
+    """Compute a selection of volatility estimators for each ticker.
+
+    The implementation normalises the input frame once and materialises
+    per-field ``float64`` arrays together with validity masks.  Subsequent
+    ticker lookups are then simple column selections instead of repeatedly
+    coercing ``Series`` objects.  This reduces the dominant cost from
+    roughly :math:`O(F * T * N)` conversions (fields × tickers × periods)
+    down to :math:`O(F * N)` followed by :math:`O(T * N)` arithmetic.
+    """
 
     per_year = periods_per_year(interval)
     ln2 = np.log(2.0)
     results: List[Dict[str, Union[float, str]]] = []
 
     if tickers == []:
-        return pd.DataFrame(columns=[
-            "ticker",
-            "parkinson_vol",
-            "gk_vol",
-            "rs_vol",
-            "yz_vol",
-            "ewma_vol",
-            "mad_vol",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "ticker",
+                "parkinson_vol",
+                "gk_vol",
+                "rs_vol",
+                "yz_vol",
+                "ewma_vol",
+                "mad_vol",
+            ]
+        )
 
     normalized = raw
     if isinstance(raw.columns, pd.MultiIndex):
@@ -360,59 +370,72 @@ def additional_volatility_measures(
         else:
             normalized = raw.sort_index(axis=1)
 
-    def _field_frame(field: str) -> pd.DataFrame | None:
-        if isinstance(normalized.columns, pd.MultiIndex):
-            if field in normalized.columns.get_level_values(0):
-                return normalized[field]
-            return None
-        if field in normalized.columns:
-            return normalized[[field]]
-        return None
+    FieldArrays = tuple[np.ndarray, np.ndarray, Dict[str, int]]
 
-    field_frames: Dict[str, pd.DataFrame | None] = {
-        "adj_close": _field_frame("Adj Close"),
-        "close": _field_frame("Close"),
-        "open": _field_frame("Open"),
-        "high": _field_frame("High"),
-        "low": _field_frame("Low"),
+    def _prepare_field(field_name: str) -> FieldArrays | None:
+        if isinstance(normalized.columns, pd.MultiIndex):
+            if field_name not in normalized.columns.get_level_values(0):
+                return None
+            frame = normalized[field_name]
+        elif field_name in normalized.columns:
+            frame = normalized[[field_name]]
+        else:
+            return None
+
+        if isinstance(frame, pd.Series):
+            series_frame = frame.to_frame()
+        else:
+            series_frame = frame
+
+        numeric = series_frame.apply(pd.to_numeric, errors="coerce")
+        values_2d = numeric.to_numpy(dtype=np.float64, copy=False)
+        mask_2d = np.isfinite(values_2d)
+        column_index_map: Dict[str, int] = {}
+        for idx, col in enumerate(series_frame.columns):
+            key = col if isinstance(col, str) else str(col)
+            column_index_map[key] = idx
+        return values_2d, mask_2d, column_index_map
+
+    field_arrays: Dict[str, FieldArrays | None] = {
+        "adj_close": _prepare_field("Adj Close"),
+        "close": _prepare_field("Close"),
+        "open": _prepare_field("Open"),
+        "high": _prepare_field("High"),
+        "low": _prepare_field("Low"),
     }
 
-    def _array_for(field: str, ticker: str) -> tuple[np.ndarray, np.ndarray] | None:
-        frame = field_frames[field]
-        if frame is None:
+    def _column_data(field: str, ticker: str) -> tuple[np.ndarray, np.ndarray] | None:
+        data = field_arrays.get(field)
+        if data is None:
             return None
-        series: pd.Series
-        if isinstance(frame, pd.Series):
-            series = frame
-        else:
-            if ticker in frame.columns:
-                series = frame[ticker]
-            elif frame.shape[1] == 1:
-                series = frame.iloc[:, 0]
+        values_2d, mask_2d, column_index_map = data
+        column_idx = column_index_map.get(ticker)
+        if column_idx is None:
+            if len(column_index_map) == 1:
+                column_idx = next(iter(column_index_map.values()))
             else:
                 return None
-        values = pd.to_numeric(series, errors="coerce").to_numpy(dtype=np.float64, copy=False)
-        mask = np.isfinite(values)
-        return values, mask
+        return values_2d[:, column_idx], mask_2d[:, column_idx]
 
     for ticker in tickers:
-        close_data = _array_for("adj_close", ticker) or _array_for("close", ticker)
+        close_data = _column_data("adj_close", ticker) or _column_data("close", ticker)
         if close_data is None:
             continue
         close_values = close_data[0]
 
         data_store: Dict[str, tuple[np.ndarray, np.ndarray]] = {"close": close_data}
         for key in ("open", "high", "low"):
-            arr = _array_for(key, ticker)
+            arr = _column_data(key, ticker)
             if arr is not None:
                 data_store[key] = arr
 
         masks = [mask for _, mask in data_store.values()]
         if not masks:
             continue
-        common_mask = masks[0].copy()
-        for mask in masks[1:]:
-            common_mask &= mask
+        if len(masks) == 1:
+            common_mask = masks[0].copy()
+        else:
+            common_mask = np.logical_and.reduce(masks)
         valid_count = int(common_mask.sum())
         if valid_count < min_periods:
             continue
