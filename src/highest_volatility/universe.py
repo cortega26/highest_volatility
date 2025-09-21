@@ -7,26 +7,32 @@ headless Selenium browser hardened with selenium-stealth.
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import Iterable, List, Tuple
+import re
 
 import pandas as pd
 import yfinance as yf
 
-from highest_volatility.sources.selenium_universe import (
-    fetch_us500_fortune_pairs,
-)
-from highest_volatility.storage.ticker_cache import (
-    load_cached_fortune,
-    save_cached_fortune,
-)
+from highest_volatility.sources.selenium_universe import fetch_us500_fortune_pairs
+from highest_volatility.storage.ticker_cache import load_cached_fortune, save_cached_fortune
 from highest_volatility.ingest.tickers import normalize_ticker
-import re
 
 from highest_volatility.errors import CacheError, HVError, IntegrationError, wrap_error
 from highest_volatility.logging import get_logger, log_exception
 
 
 logger = get_logger(__name__, component="universe")
+
+
+@dataclass
+class FortuneData:
+    """Container for intermediate Fortune list state."""
+
+    frame: pd.DataFrame
+
+    def copy(self) -> "FortuneData":
+        return FortuneData(self.frame.copy())
 
 
 def _validate_tickers_have_history(
@@ -65,6 +71,170 @@ def _validate_tickers_have_history(
     return valid_sorted
 
 
+def _load_cached_fortune(
+    *, first_n_fortune: int, ticker_cache_days: int
+) -> FortuneData | None:
+    """Return cached Fortune data when available."""
+
+    min_rows = min(100, first_n_fortune)
+    fortune_df = load_cached_fortune(max_age_days=ticker_cache_days, min_rows=min_rows)
+    if fortune_df is None:
+        return None
+
+    try:
+        print(f"      Using cached Fortune list ({len(fortune_df)} rows)")
+    except Exception:  # pragma: no cover - logging only
+        pass
+    logger.info({"event": "fortune_cache_used", "rows": len(fortune_df)})
+    return FortuneData(fortune_df)
+
+
+def _scrape_fortune(*, first_n_fortune: int) -> FortuneData:
+    """Fetch the Fortune list using Selenium Stealth and persist to cache."""
+
+    target_to_fetch = max(first_n_fortune * 2, first_n_fortune + 100)
+    try:
+        pairs: List[Tuple[str, str]] = fetch_us500_fortune_pairs(target_to_fetch)
+    except HVError as error:  # pragma: no cover - defensive
+        log_exception(logger, error, event="fortune_scrape_failed")
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to scrape Fortune list",
+            context={"target": target_to_fetch},
+        )
+        log_exception(logger, error, event="fortune_scrape_failed")
+        raise error
+
+    seen = set()
+    recs: List[dict] = []
+    rank = 1
+    for name, tkr in pairs:
+        if tkr in seen:
+            continue
+        seen.add(tkr)
+        recs.append({"rank": rank, "company": name, "ticker": tkr})
+        rank += 1
+        if len(recs) >= target_to_fetch:
+            break
+
+    fortune_df = pd.DataFrame(recs)
+    try:
+        save_cached_fortune(fortune_df)
+        try:
+            print(f"      Scraped and cached Fortune list ({len(fortune_df)} rows)")
+        except Exception:  # pragma: no cover - logging only
+            pass
+        logger.info({"event": "fortune_cache_saved", "rows": len(fortune_df)})
+    except HVError as error:  # pragma: no cover - logging path
+        log_exception(logger, error, event="fortune_cache_save_failed")
+    except Exception as exc:  # pragma: no cover - defensive
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to persist Fortune cache",
+            context={"rows": len(fortune_df)},
+        )
+        log_exception(logger, error, event="fortune_cache_save_failed")
+
+    return FortuneData(fortune_df)
+
+
+def _normalize_fortune(data: FortuneData) -> FortuneData:
+    """Sort by rank when available and attach normalized tickers."""
+
+    fortune_df = data.frame
+    if "rank" in fortune_df.columns:
+        try:
+            fortune_df = fortune_df.sort_values("rank").reset_index(drop=True)
+        except Exception as exc:  # pragma: no cover - defensive
+            error = wrap_error(
+                exc,
+                IntegrationError,
+                message="Failed to sort Fortune list",
+            )
+            log_exception(logger, error, event="fortune_sort_failed")
+
+    try:
+        fortune_df = fortune_df.copy()
+        fortune_df["ticker"] = fortune_df["ticker"].astype(str).str.strip()
+        fortune_df["normalized_ticker"] = fortune_df["ticker"].map(normalize_ticker)
+    except Exception as exc:  # pragma: no cover - defensive
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to normalize Fortune tickers",
+        )
+        log_exception(logger, error, event="fortune_normalize_failed")
+        fortune_df["normalized_ticker"] = fortune_df["ticker"].map(normalize_ticker)
+
+    return FortuneData(fortune_df)
+
+
+def _deduplicate_symbols(data: FortuneData) -> tuple[list[str], list[str]]:
+    """Return ordered companies and tickers using normalized symbols."""
+
+    tickers: List[str] = []
+    companies: List[str] = []
+    seen = set()
+    for _, row in data.frame.iterrows():
+        name = str(row["company"]).strip()
+        tkr = str(row["normalized_ticker"]).strip()
+        if not re.fullmatch(r"[A-Z]+[A-Z0-9.-]*", tkr):
+            continue
+        if not tkr or tkr in seen:
+            continue
+        seen.add(tkr)
+        companies.append(name)
+        tickers.append(tkr)
+
+    return companies, tickers
+
+
+def _validate_history(tickers: Iterable[str], *, validate: bool) -> set[str]:
+    """Return symbols with sufficient history based on ``validate`` flag."""
+
+    if validate:
+        return set(_validate_tickers_have_history(list(tickers)))
+    return set(tickers)
+
+
+def _align_ranks(
+    data: FortuneData,
+    *,
+    companies: Iterable[str],
+    tickers: Iterable[str],
+) -> pd.DataFrame:
+    """Align Fortune rankings with the filtered ticker universe."""
+
+    final_tickers = list(tickers)
+    final_companies = list(companies)
+    try:
+        base = data.frame.drop_duplicates("normalized_ticker", keep="first")
+        base = base.set_index("normalized_ticker")
+        sel = base.loc[final_tickers, ["rank", "company"]]
+        fortune = sel.assign(ticker=sel.index).reset_index(drop=True)
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            IntegrationError,
+            message="Failed to align Fortune rankings",
+            context={"tickers": len(final_tickers)},
+        )
+        log_exception(logger, error, event="fortune_alignment_failed")
+        ranks = list(range(1, len(final_tickers) + 1))
+        fortune = pd.DataFrame(
+            {
+                "rank": ranks,
+                "company": final_companies,
+                "ticker": final_tickers,
+            }
+        )
+    return fortune
+
+
 def build_universe(
     first_n_fortune: int,
     *,
@@ -80,113 +250,19 @@ def build_universe(
     - Returns a DataFrame with columns: ``rank``, ``company``, ``ticker``
     """
 
-    # Try cached Fortune list first
-    fortune_df: pd.DataFrame | None = None
+    data: FortuneData | None = None
     if use_ticker_cache:
-        # Accept a partially smaller cache; we'll filter/validate later.
-        min_rows = min(100, first_n_fortune)
-        fortune_df = load_cached_fortune(max_age_days=ticker_cache_days, min_rows=min_rows)
-        if fortune_df is not None:
-            try:
-                print(f"      Using cached Fortune list ({len(fortune_df)} rows)")
-            except Exception:
-                pass
-            logger.info({"event": "fortune_cache_used", "rows": len(fortune_df)})
-
-    if fortune_df is None:
-        # Fetch via Selenium and then persist to cache
-        target_to_fetch = max(first_n_fortune * 2, first_n_fortune + 100)
-        try:
-            pairs: List[Tuple[str, str]] = fetch_us500_fortune_pairs(target_to_fetch)
-        except HVError as error:  # pragma: no cover - defensive
-            log_exception(logger, error, event="fortune_scrape_failed")
-            raise
-        except Exception as exc:  # pragma: no cover - defensive
-            error = wrap_error(
-                exc,
-                IntegrationError,
-                message="Failed to scrape Fortune list",
-                context={"target": target_to_fetch},
-            )
-            log_exception(logger, error, event="fortune_scrape_failed")
-            raise error
-        # Deduplicate and build DataFrame with rank order as encountered
-        seen = set()
-        recs: List[dict] = []
-        rank = 1
-        for name, tkr in pairs:
-            if tkr in seen:
-                continue
-            seen.add(tkr)
-            recs.append({"rank": rank, "company": name, "ticker": tkr})
-            rank += 1
-            if len(recs) >= target_to_fetch:
-                break
-        fortune_df = pd.DataFrame(recs)
-        try:
-            save_cached_fortune(fortune_df)
-            try:
-                print(f"      Scraped and cached Fortune list ({len(fortune_df)} rows)")
-            except Exception:
-                pass
-            logger.info({"event": "fortune_cache_saved", "rows": len(fortune_df)})
-        except HVError as error:  # pragma: no cover - logging path
-            log_exception(logger, error, event="fortune_cache_save_failed")
-        except Exception as exc:  # pragma: no cover - defensive
-            error = wrap_error(
-                exc,
-                CacheError,
-                message="Failed to persist Fortune cache",
-                context={"rows": len(fortune_df)},
-            )
-            log_exception(logger, error, event="fortune_cache_save_failed")
-    # Ensure rank ordering if present
-    if "rank" in fortune_df.columns:
-        try:
-            fortune_df = fortune_df.sort_values("rank").reset_index(drop=True)
-        except Exception as exc:  # pragma: no cover - defensive
-            error = wrap_error(
-                exc,
-                IntegrationError,
-                message="Failed to sort Fortune list",
-            )
-            log_exception(logger, error, event="fortune_sort_failed")
-
-    # Carry both raw and normalized tickers for downstream alignment
-    try:
-        fortune_df = fortune_df.copy()
-        fortune_df["ticker"] = fortune_df["ticker"].astype(str).str.strip()
-        fortune_df["normalized_ticker"] = fortune_df["ticker"].map(normalize_ticker)
-    except Exception as exc:  # pragma: no cover - defensive
-        error = wrap_error(
-            exc,
-            IntegrationError,
-            message="Failed to normalize Fortune tickers",
+        data = _load_cached_fortune(
+            first_n_fortune=first_n_fortune, ticker_cache_days=ticker_cache_days
         )
-        log_exception(logger, error, event="fortune_normalize_failed")
-        fortune_df["normalized_ticker"] = fortune_df["ticker"].map(normalize_ticker)
 
-    # Deduplicate by normalized ticker while preserving order
-    tickers: List[str] = []
-    companies: List[str] = []
-    seen = set()
-    for _, row in fortune_df.iterrows():
-        name = str(row["company"]).strip()
-        tkr = str(row["normalized_ticker"]).strip()
-        # Filter to valid Yahoo-style symbols early
-        if not re.fullmatch(r"[A-Z]+[A-Z0-9.-]*", tkr):
-            continue
-        if not tkr or tkr in seen:
-            continue
-        seen.add(tkr)
-        companies.append(name)
-        tickers.append(tkr)
+    if data is None:
+        data = _scrape_fortune(first_n_fortune=first_n_fortune)
 
-    # Optionally validate via recent price history for tradability
-    if validate:
-        valid = set(_validate_tickers_have_history(tickers))
-    else:
-        valid = set(tickers)
+    data = _normalize_fortune(data)
+    companies, tickers = _deduplicate_symbols(data)
+
+    valid = _validate_history(tickers, validate=validate)
 
     final_companies: List[str] = []
     final_tickers: List[str] = []
@@ -197,27 +273,11 @@ def build_universe(
         if len(final_tickers) >= first_n_fortune:
             break
 
-    # Preserve actual Fortune ranks if available
-    try:
-        base = fortune_df.drop_duplicates("normalized_ticker", keep="first")
-        base = base.set_index("normalized_ticker")
-        sel = base.loc[final_tickers, ["rank", "company"]]
-        fortune = sel.assign(ticker=sel.index).reset_index(drop=True)
-    except Exception as exc:
-        # Fallback to enumerated ranks
-        error = wrap_error(
-            exc,
-            IntegrationError,
-            message="Failed to align Fortune rankings",
-            context={"tickers": len(final_tickers)},
-        )
-        log_exception(logger, error, event="fortune_alignment_failed")
-        ranks = list(range(1, len(final_tickers) + 1))
-        fortune = pd.DataFrame({
-            "rank": ranks,
-            "company": final_companies,
-            "ticker": final_tickers,
-        })
+    fortune = _align_ranks(
+        data,
+        companies=final_companies,
+        tickers=final_tickers,
+    )
     return final_tickers, fortune
 
 
