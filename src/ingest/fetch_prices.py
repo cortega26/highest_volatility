@@ -26,9 +26,18 @@ class PriceFetcher:
     def _next_start(self, cached_df: Optional[pd.DataFrame], interval: str) -> date:
         if cached_df is None or cached_df.empty:
             return full_backfill_start(interval)
-        last = cached_df.index[-1].date()
-        # TODO: step by exact bar size for intraday intervals
-        return last + timedelta(days=1)
+        last = cached_df.index[-1]
+        if not isinstance(last, pd.Timestamp):
+            last = pd.to_datetime(last)
+        last_date = last.date()
+
+        if interval.endswith("m") or interval.endswith("h"):
+            # Re-fetch the cached session for intraday intervals to capture any
+            # additional bars released later in the same trading day. The
+            # incremental merge will deduplicate overlapping rows.
+            return last_date
+
+        return last_date + timedelta(days=1)
 
     def fetch_one(self, ticker: str, interval: str, *, force_refresh: bool = False) -> pd.DataFrame:
         """Fetch and cache price history for a single ``ticker``."""

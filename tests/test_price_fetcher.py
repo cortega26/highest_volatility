@@ -65,6 +65,54 @@ def test_incremental_and_force_refresh(tmp_path, monkeypatch):
     assert ds.calls[2][1] == date(2020, 1, 1)
 
 
+def test_intraday_refresh_replays_cached_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return date(2024, 5, 20)
+
+    monkeypatch.setattr("ingest.fetch_prices.date", FrozenDate)
+
+    saved: dict[tuple[str, str], pd.DataFrame] = {}
+
+    cached_idx = pd.date_range("2024-05-20 09:30", periods=5, freq="min")
+    saved[("AAA", "1m")] = pd.DataFrame({"Adj Close": range(len(cached_idx))}, index=cached_idx)
+
+    def fake_save_cache(ticker: str, interval: str, df: pd.DataFrame, source: str, **kwargs) -> None:
+        saved[(ticker, interval)] = df.copy()
+
+    def fake_load_cached(ticker: str, interval: str):
+        return saved.get((ticker, interval)), None
+
+    monkeypatch.setattr("ingest.fetch_prices.save_cache", fake_save_cache)
+    monkeypatch.setattr("ingest.fetch_prices.load_cached", fake_load_cached)
+
+    class IntradayDataSource(DataSource):
+        def __init__(self):
+            self.calls: List[tuple[str, date, date, str]] = []
+
+        def get_prices(self, ticker: str, start: date, end: date, interval: str) -> pd.DataFrame:
+            self.calls.append((ticker, start, end, interval))
+            idx = pd.date_range(start=start, end=end, freq="min")
+            return pd.DataFrame({"Adj Close": range(len(idx))}, index=idx)
+
+        def validate_ticker(self, ticker: str) -> bool:
+            return True
+
+    datasource = IntradayDataSource()
+    fetcher = PriceFetcher(datasource, throttle=0)
+
+    fetcher.fetch_one("AAA", "1m")
+
+    assert datasource.calls, "datasource should be invoked for intraday refresh"
+    _, start_arg, end_arg, interval_arg = datasource.calls[0]
+    assert start_arg == FrozenDate.today()
+    assert end_arg == FrozenDate.today()
+    assert interval_arg == "1m"
+
+
 def test_price_fetcher_uses_60m_alias(monkeypatch):
     class FrozenDate(date):
         @classmethod

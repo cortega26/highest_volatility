@@ -30,6 +30,12 @@ and ranking operate on the normalized variant so that cached ``rank`` and
 loading cached data with dotted tickers and ensuring the original ranks remain
 intact.
 
+Incremental price refreshes now re-request the final cached session for
+intraday intervals (``1m``/``1h`` variants) so late-published bars within the
+same trading day are merged correctly. The synchronous and asynchronous
+fetchers share this behavior, with ``tests/test_price_fetcher.py`` verifying the
+intraday cache replay alongside the existing daily interval regression.
+
 Client utilities such as ``cache.store`` will hydrate missing local cache files
 from this API when the ``HV_API_BASE_URL`` environment variable is set.
 
