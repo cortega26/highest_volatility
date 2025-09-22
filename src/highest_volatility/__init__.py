@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import importlib
-import sys
 import pkgutil
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Iterable, Mapping
@@ -67,6 +67,8 @@ def _bootstrap_src_namespace() -> ModuleType:
     module.__path__ = []  # type: ignore[attr-defined]
     module.__package__ = "src"
     existing = sys.modules.setdefault("src", module)
+    if existing is module:
+        _register_cache_namespace_aliases()
     return existing
 
 
@@ -110,6 +112,24 @@ def _alias_namespace(old: str, new: str) -> None:
             continue
         alias = f"{old}{module_info.name[prefix_len:]}"
         sys.modules.setdefault(alias, module)
+
+
+def _register_cache_namespace_aliases() -> None:
+    """Expose historic ``cache`` modules when running from a wheel install."""
+
+    try:
+        cache_module = importlib.import_module("highest_volatility.cache")
+    except ModuleNotFoundError:
+        return
+
+    sys.modules.setdefault("cache", cache_module)
+
+    for suffix in ("merge", "store"):
+        try:
+            module = importlib.import_module(f"highest_volatility.cache.{suffix}")
+        except ModuleNotFoundError:
+            continue
+        sys.modules.setdefault(f"cache.{suffix}", module)
 
 
 def _sys_path_iter() -> Iterable[str]:

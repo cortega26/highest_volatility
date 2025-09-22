@@ -83,3 +83,56 @@ def test_highest_volatility_bootstraps_without_repo(monkeypatch: pytest.MonkeyPa
     src_cli = importlib.import_module("src.cli")
     hv_cli = importlib.import_module("highest_volatility.cli")
     assert src_cli is hv_cli
+
+
+def test_wheel_install_exposes_cache_aliases(monkeypatch: pytest.MonkeyPatch, repo_root: Path) -> None:
+    """Ensure wheel-style installs still support the legacy ``cache`` namespace."""
+
+    cleaned = [
+        entry for entry in sys.path if Path(entry).resolve() != repo_root
+    ]
+    monkeypatch.setattr(sys, "path", cleaned, raising=False)
+
+    for name in (
+        "highest_volatility",
+        "highest_volatility.cache",
+        "highest_volatility.cache.merge",
+        "highest_volatility.cache.store",
+        "src",
+        "cache",
+        "cache.merge",
+        "cache.store",
+    ):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    real_exists = Path.exists
+
+    def fake_exists(self: Path) -> bool:  # type: ignore[override]
+        if self == repo_root / "src":
+            return False
+        return real_exists(self)
+
+    monkeypatch.setattr(Path, "exists", fake_exists, raising=False)
+
+    real_import_module = importlib.import_module
+
+    def guarded_import(name: str, package: str | None = None) -> ModuleType:
+        if name == "src":
+            raise ModuleNotFoundError(name)
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", guarded_import, raising=False)
+
+    importlib.import_module("highest_volatility")
+
+    cache_module = importlib.import_module("cache")
+    hv_cache = importlib.import_module("highest_volatility.cache")
+    assert cache_module is hv_cache
+
+    cache_merge = importlib.import_module("cache.merge")
+    hv_cache_merge = importlib.import_module("highest_volatility.cache.merge")
+    assert cache_merge is hv_cache_merge
+
+    cache_store = importlib.import_module("cache.store")
+    hv_cache_store = importlib.import_module("highest_volatility.cache.store")
+    assert cache_store is hv_cache_store
