@@ -1,9 +1,11 @@
-import pandas as pd
-import pytest
+import argparse
 import re
-
 from argparse import Namespace
 
+import pandas as pd
+import pytest
+
+from highest_volatility import cli as public_cli
 from highest_volatility.app import cli
 
 
@@ -23,6 +25,17 @@ def _make_args(**overrides) -> Namespace:
     base = vars(cli.parse_args([]))
     base.update(overrides)
     return Namespace(**base)
+
+
+def test_public_cli_reexports_parser():
+    parser = public_cli.build_parser()
+    assert isinstance(parser, argparse.ArgumentParser)
+    assert parser.format_usage() == cli.build_parser().format_usage()
+    assert public_cli.build_parser is cli.build_parser
+
+
+def test_public_cli_main_forwards(monkeypatch):
+    assert public_cli.main is cli.main
 
 
 def test_build_universe_step_returns_dataclass(monkeypatch):
