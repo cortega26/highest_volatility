@@ -32,6 +32,18 @@ Runtime notes:
 - Override any FastAPI settings with ``HV_``-prefixed environment variables.
   Common examples include ``HV_REDIS_URL`` (default ``redis://localhost:6379/0``)
   and ``HV_CACHE_REFRESH_INTERVAL``.
+- Container builds now include a Docker ``HEALTHCHECK`` that polls ``/healthz``.
+  Kubernetes operators should also wire ``/readyz`` into readiness probes so
+  nodes only receive traffic once Redis connectivity and background refresh
+  tasks are healthy.
+
+### Operational endpoints
+
+- ``GET /healthz`` – liveness check reporting cache refresh task state and
+  Redis reachability. Returns HTTP 503 if the background worker has failed.
+- ``GET /readyz`` – readiness gate confirming Redis connectivity and a healthy
+  cache backend. Returns HTTP 503 until Redis is reachable and the cache is
+  initialised.
 
 The service provides several HTTP endpoints documented in
 [`docs/api.md`](docs/api.md). Refer to that guide for request/response schemas,

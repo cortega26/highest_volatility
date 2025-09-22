@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import cast
+from typing import Any, cast
 
 import redis.asyncio as redis
 from redis.exceptions import ConnectionError as RedisConnectionError
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
@@ -28,7 +28,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from highest_volatility.app.cli import (
     DEFAULT_LOOKBACK_DAYS,
@@ -156,6 +156,8 @@ async def on_startup() -> None:
     app.state.cache_health = "initializing"
     app.state.cache_health_detail = None
     client = redis.from_url(settings.redis_url, encoding="utf8", decode_responses=True)
+    app.state.redis_client = client
+    app.state.redis_last_error: str | None = None
     try:
         await client.ping()
     except (RedisConnectionError, OSError, TimeoutError) as exc:
@@ -165,6 +167,12 @@ async def on_startup() -> None:
         FastAPICache.init(InMemoryBackend(), prefix="hv-cache-fallback")
         app.state.cache_health = "degraded"
         app.state.cache_health_detail = "redis_unreachable"
+        app.state.redis_last_error = str(exc)
+        app.state.redis_client = None
+        try:
+            await client.close()
+        except Exception:  # pragma: no cover - best-effort cleanup
+            pass
     else:
         FastAPICache.init(RedisBackend(client), prefix="hv-cache")
         app.state.cache_health = "healthy"
@@ -186,11 +194,105 @@ async def on_shutdown() -> None:
             await task
         except asyncio.CancelledError:
             pass
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Cache refresh task raised during shutdown", exc_info=exc
+            )
     try:
         await FastAPICache.clear()
     except AssertionError:
         pass
     app.state.cache_health = "stopped"
+    client = getattr(app.state, "redis_client", None)
+    if client is not None:
+        try:
+            await client.close()
+        except Exception:  # pragma: no cover - best-effort cleanup
+            pass
+    app.state.redis_client = None
+    app.state.redis_last_error = None
+
+
+async def _check_redis_health() -> tuple[bool, dict[str, Any]]:
+    """Probe the configured Redis backend and return structured status."""
+
+    client = getattr(app.state, "redis_client", None)
+    last_error = getattr(app.state, "redis_last_error", None)
+    if client is None:
+        detail = "redis_client_unavailable"
+        return False, {"status": "down", "detail": detail, "last_error": last_error}
+    try:
+        await client.ping()
+    except (RedisConnectionError, OSError, TimeoutError) as exc:
+        app.state.redis_last_error = str(exc)
+        return False, {
+            "status": "down",
+            "detail": "redis_unreachable",
+            "last_error": str(exc),
+        }
+    else:
+        app.state.redis_last_error = None
+        return True, {"status": "up", "detail": None, "last_error": None}
+
+
+def _check_cache_refresh_task() -> tuple[bool, dict[str, Any]]:
+    """Return health information for the cache refresh background task."""
+
+    task = getattr(app.state, "cache_refresh_task", None)
+    if task is None:
+        return False, {"status": "missing", "detail": "cache_refresh_task_missing"}
+    if task.cancelled():
+        return False, {"status": "cancelled", "detail": "cache_refresh_task_cancelled"}
+    if task.done():
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:  # pragma: no cover - defensive
+            return False, {"status": "cancelled", "detail": "cache_refresh_task_cancelled"}
+        if exc is not None:
+            return False, {
+                "status": "error",
+                "detail": f"cache_refresh_task_failed:{exc.__class__.__name__}",
+            }
+        return True, {"status": "completed", "detail": None}
+    return True, {"status": "running", "detail": None}
+
+
+@app.get("/healthz", tags=["operations"], response_class=JSONResponse)
+async def healthz() -> JSONResponse:
+    """Liveness endpoint reporting process and background worker health."""
+
+    redis_ok, redis_report = await _check_redis_health()
+    task_ok, task_report = _check_cache_refresh_task()
+    cache_state = getattr(app.state, "cache_health", "unknown")
+    overall_ok = task_ok and cache_state != "stopped"
+    status_code = status.HTTP_200_OK if overall_ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    body = {
+        "status": "ok" if overall_ok else "error",
+        "redis": redis_report | {"cache_state": cache_state},
+        "cache_refresh_task": task_report,
+    }
+    if not redis_ok:
+        body["redis"]["detail"] = redis_report.get("detail", "redis_unreachable")
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@app.get("/readyz", tags=["operations"], response_class=JSONResponse)
+async def readyz() -> JSONResponse:
+    """Readiness endpoint ensuring dependencies are reachable."""
+
+    redis_ok, redis_report = await _check_redis_health()
+    task_ok, task_report = _check_cache_refresh_task()
+    cache_state = getattr(app.state, "cache_health", "unknown")
+    overall_ok = redis_ok and task_ok and cache_state == "healthy"
+    status_code = status.HTTP_200_OK if overall_ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    body = {
+        "status": "ok" if overall_ok else "error",
+        "redis": redis_report | {"cache_state": cache_state},
+        "cache_refresh_task": task_report,
+    }
+    if not overall_ok:
+        body["redis"]["detail"] = redis_report.get("detail", "redis_unreachable")
+    return JSONResponse(status_code=status_code, content=body)
 
 
 @app.get("/universe")
