@@ -3,6 +3,7 @@ Name: highest_volatility
 Version: 1.0.0
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+Requires-Dist: altair
 Requires-Dist: pandas
 Requires-Dist: pyarrow
 Requires-Dist: yfinance
