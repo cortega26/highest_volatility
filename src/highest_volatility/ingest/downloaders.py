@@ -61,7 +61,8 @@ class BatchDownloadResult:
         combined = pd.concat(self.frames, axis=1)
         combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
         if trim_start is not None:
-            combined = combined.loc[combined.index >= pd.to_datetime(trim_start)]
+            ts = _normalize_trim_start(combined.index, trim_start)
+            combined = combined.loc[combined.index >= ts]
         return combined.dropna(how="all")
 
 
@@ -182,7 +183,8 @@ class AsyncDownloadResult:
         combined = pd.concat(self.frames, axis=1)
         combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
         if trim_start is not None:
-            combined = combined.loc[combined.index >= pd.to_datetime(trim_start)]
+            ts = _normalize_trim_start(combined.index, trim_start)
+            combined = combined.loc[combined.index >= ts]
         return combined.dropna(how="all")
 
 
@@ -463,7 +465,27 @@ def build_combined_dataframe(
     combined = pd.concat(frames, axis=1)
     combined = combined.swaplevel(0, 1, axis=1).sort_index(axis=1)
     if trim_start is not None:
-        combined = combined.loc[combined.index >= pd.to_datetime(trim_start)]
+        ts = _normalize_trim_start(combined.index, trim_start)
+        combined = combined.loc[combined.index >= ts]
     return combined.dropna(how="all")
+
+
+def _normalize_trim_start(index: pd.Index, trim_start: datetime) -> pd.Timestamp:
+    """Coerce ``trim_start`` to match the timezone of ``index`` for comparisons."""
+
+    ts = pd.Timestamp(trim_start)
+    if not isinstance(index, pd.DatetimeIndex):
+        return ts
+
+    index_tz = index.tz
+    if index_tz is None:
+        if ts.tzinfo is None:
+            return ts
+        return ts.tz_convert(None)
+
+    if ts.tzinfo is None:
+        return ts.tz_localize(index_tz)
+
+    return ts.tz_convert(index_tz)
 
 
