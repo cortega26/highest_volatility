@@ -53,6 +53,7 @@ def _alias_namespace(old: str, new: str) -> None:
 
 
 for _old, _new in {
+    "src.api": "highest_volatility.app.api",
     "src.cache": "highest_volatility.cache",
     "src.config": "highest_volatility.config",
     "src.datasource": "highest_volatility.datasource",

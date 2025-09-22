@@ -7,9 +7,18 @@ from highest_volatility.api import app as cache_app
 from highest_volatility.app.api import app as hv_app
 
 
+def test_highest_volatility_api_reexports_main_app() -> None:
+    """Ensure ``highest_volatility.api`` exposes the production FastAPI app."""
+
+    assert cache_app is hv_app
+    routes = {route.path for route in cache_app.routes}
+    assert "/metrics" in routes
+    assert "/prices" in routes
+
+
 def test_prices_rejects_traversal() -> None:
     with TestClient(cache_app) as client:
-        resp = client.get("/prices/AAPL", params={"interval": "../"})
+        resp = client.get("/prices", params={"tickers": "AAPL", "interval": "../"})
         assert resp.status_code == 400
         assert "invalid" in resp.json()["detail"].lower()
         for header in (
