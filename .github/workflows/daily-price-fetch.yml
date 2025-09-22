@@ -30,7 +30,7 @@ jobs:
           intervals=(1m 5m 15m 30m 1h 1d)
           tickers="AAPL MSFT AMZN GOOGL META"
           for intv in "${intervals[@]}"; do
-            until python -m src.cli --interval "$intv" --tickers $tickers; do
+            until python -m highest_volatility.cli --interval "$intv" --tickers $tickers; do
               echo "Retrying $intv..."
               sleep 30
             done
