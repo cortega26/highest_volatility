@@ -34,6 +34,8 @@ Requires-Dist: vcrpy; extra == "dev"
 Requires-Dist: ruff; extra == "dev"
 Requires-Dist: mypy; extra == "dev"
 Requires-Dist: hypothesis; extra == "dev"
+Provides-Extra: perf
+Requires-Dist: locust==2.24.1; extra == "perf"
 
 # Highest Volatility
 
@@ -43,12 +45,11 @@ loading and caching price history.
 ## Module Layout
 
 Reusable components now live under the unified :mod:`highest_volatility`
-namespace. For example, caching helpers are available from
-``highest_volatility.cache`` and security sanitizers reside in
-``highest_volatility.security``. The legacy ``src.*`` entry points remain
-available via :mod:`sys.modules` aliases so external consumers can migrate
-incrementally, but internal imports and documentation reference the consolidated
-package.
+namespace. Importers must target the canonical package modules—caching helpers
+are exposed via ``highest_volatility.cache`` and security sanitizers reside in
+``highest_volatility.security``. Compatibility shims for the legacy
+``src.*`` namespace have been removed, so downstream projects need to update
+their imports to the ``highest_volatility.*`` modules before upgrading.
 
 ## Data API
 
@@ -69,10 +70,29 @@ Runtime notes:
 - Override any FastAPI settings with ``HV_``-prefixed environment variables.
   Common examples include ``HV_REDIS_URL`` (default ``redis://localhost:6379/0``)
   and ``HV_CACHE_REFRESH_INTERVAL``.
+- Container builds now include a Docker ``HEALTHCHECK`` that polls ``/healthz``.
+  Kubernetes operators should also wire ``/readyz`` into readiness probes so
+  nodes only receive traffic once Redis connectivity and background refresh
+  tasks are healthy.
+
+### Operational endpoints
+
+- ``GET /healthz`` – liveness check reporting cache refresh task state and
+  Redis reachability. Returns HTTP 503 if the background worker has failed.
+- ``GET /readyz`` – readiness gate confirming Redis connectivity and a healthy
+  cache backend. Returns HTTP 503 until Redis is reachable and the cache is
+  initialised.
 
 The service provides several HTTP endpoints documented in
 [`docs/api.md`](docs/api.md). Refer to that guide for request/response schemas,
-error handling behaviour, and configuration options.
+error handling behaviour, and configuration options. Reliability commitments,
+error budgets, and alerting flows for the FastAPI layer and the ingestion jobs
+live in [`docs/reliability/slo.md`](docs/reliability/slo.md). Operational drills,
+chaos experiments, and performance tooling are detailed in
+[`docs/reliability/testing.md`](docs/reliability/testing.md). Keep SLO dashboards
+and Alertmanager rules version-controlled alongside deployments and rerun
+`scripts/deploy_dashboards.py` after each release to ensure Grafana panels and
+PagerDuty routes reflect the current configuration.
 
 ### Validation Notes
 
@@ -121,6 +141,14 @@ selected with the ``--metric`` option:
 - ``max_drawdown`` – maximum drawdown
 - ``var`` – value at risk (VaR)
 - ``sortino`` – annualised Sortino ratio
+
+### Supplying explicit tickers
+
+Pass one or more symbols via ``--tickers`` to bypass the Selenium-backed Fortune
+scraper and operate on an ad-hoc universe. The CLI normalises the provided
+strings to uppercase, removes duplicates while preserving order, and skips the
+universe cache refresh. This mirrors the GitHub Actions workflow that refreshes
+prices for a static watchlist each night.
 
 ## CLI Internals & Rollback Plan
 
