@@ -75,6 +75,11 @@ async def schedule_cache_refresh(
     while True:
         try:
             await refresh_cached_prices(interval=interval, lookback_days=lookback_days)
+        except asyncio.CancelledError:
+            logger.info(
+                "Cache refresh loop cancelled", extra={"interval": interval, "event": "cache_refresh_cancelled"}
+            )
+            raise
         except Exception as err:  # pragma: no cover - defensive catch-all
             log_exception(
                 logger,
@@ -88,5 +93,10 @@ async def schedule_cache_refresh(
                 ),
                 event="cache_refresh_iteration_failed",
             )
-        finally:
+        try:
             await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            logger.info(
+                "Cache refresh delay cancelled", extra={"interval": interval, "event": "cache_refresh_cancelled"}
+            )
+            raise

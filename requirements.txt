@@ -26,3 +26,4 @@ altair
 joblib
 python-dateutil
 pandas-datareader
+locust==2.24.1

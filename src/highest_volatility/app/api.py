@@ -16,10 +16,12 @@ import json
 from typing import cast
 
 import redis.asyncio as redis
+from redis.exceptions import ConnectionError as RedisConnectionError
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
+from fastapi_cache.backends.inmemory import InMemoryBackend
 from pydantic_settings import BaseSettings
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -147,8 +149,25 @@ app.add_middleware(SlowAPIMiddleware)
 @app.on_event("startup")
 async def on_startup() -> None:
     """Initialize cache backend."""
+    try:
+        await FastAPICache.clear()
+    except AssertionError:
+        pass
+    app.state.cache_health = "initializing"
+    app.state.cache_health_detail = None
     client = redis.from_url(settings.redis_url, encoding="utf8", decode_responses=True)
-    FastAPICache.init(RedisBackend(client), prefix="hv-cache")
+    try:
+        await client.ping()
+    except (RedisConnectionError, OSError, TimeoutError) as exc:
+        logger.warning(
+            "Redis backend unavailable; falling back to in-memory cache", exc_info=exc
+        )
+        FastAPICache.init(InMemoryBackend(), prefix="hv-cache-fallback")
+        app.state.cache_health = "degraded"
+        app.state.cache_health_detail = "redis_unreachable"
+    else:
+        FastAPICache.init(RedisBackend(client), prefix="hv-cache")
+        app.state.cache_health = "healthy"
     app.state.cache_refresh_task = asyncio.create_task(
         schedule_cache_refresh(
             interval=settings.interval,
@@ -167,6 +186,11 @@ async def on_shutdown() -> None:
             await task
         except asyncio.CancelledError:
             pass
+    try:
+        await FastAPICache.clear()
+    except AssertionError:
+        pass
+    app.state.cache_health = "stopped"
 
 
 @app.get("/universe")
