@@ -14,6 +14,5 @@ src/.cache/
 mypy.ini
 dist/
 build/
-src/highest_volatility.egg-info/*
-!src/highest_volatility.egg-info/PKG-INFO
+src/highest_volatility.egg-info/
 
