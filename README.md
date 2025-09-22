@@ -144,6 +144,8 @@ tickers. It iterates over the tickers under `cache/prices/<interval>` and
 updates each one sequentially. Each ticker's Parquet file and JSON manifest
 live side by side in that directory (for example, `AAPL.parquet` and
 `AAPL.json`), matching the `_paths` helper in `highest_volatility/cache/store.py`.
+Set the ``HV_CACHE_ROOT`` environment variable to point cache storage to an
+alternate location when deploying on ephemeral filesystems or managed hosts.
 
 Run the scheduler from the repository root:
 

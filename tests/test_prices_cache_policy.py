@@ -58,6 +58,26 @@ def _install_cache_stubs(
     return starts, saved, full_backfill_calls
 
 
+def test_batch_mode_honors_use_cache(monkeypatch):
+    today = date(2020, 1, 10)
+    _setup_time(monkeypatch, today)
+    expected_start = date(2020, 1, 1)
+    starts, saved, calls = _install_cache_stubs(monkeypatch, expected_start, "1d", "D")
+
+    df = prices.download_price_history(
+        ["AAA"],
+        5,
+        matrix_mode="batch",
+        use_cache=True,
+        max_workers=1,
+    )
+
+    assert calls == [("1d", today)]
+    assert [pd.Timestamp(s).date() for s in starts] == [expected_start]
+    assert ("AAA", "1d") in saved
+    assert not df.empty
+
+
 def test_first_run_cache_uses_full_backfill_daily(monkeypatch):
     today = date(2020, 1, 10)
     _setup_time(monkeypatch, today)

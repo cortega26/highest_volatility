@@ -18,6 +18,15 @@ from highest_volatility.logging import get_logger, log_exception
 logger = get_logger(__name__, component="async_price_fetcher")
 
 
+def _drop_missing_prices(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    for column in ("Adj Close", "Close"):
+        if column in df.columns:
+            return df.dropna(subset=[column])
+    return df.dropna()
+
+
 class AsyncPriceFetcher:
     """High level async price fetching with incremental caching."""
 
@@ -92,7 +101,7 @@ class AsyncPriceFetcher:
             dropped_rows = list(dropped_rows)
 
         df_new = df_new.sort_index()
-        df_new = df_new.dropna()
+        df_new = _drop_missing_prices(df_new)
         if dropped_rows is not None:
             df_new.attrs["dropped_yahoo_rows"] = dropped_rows
         try:
@@ -109,7 +118,7 @@ class AsyncPriceFetcher:
             log_exception(logger, error, event="cache_merge_failed")
             raise error
 
-        merged = merged.dropna()
+        merged = _drop_missing_prices(merged)
 
         if merged.empty:
             error = DataSourceError(

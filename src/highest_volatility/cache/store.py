@@ -19,8 +19,15 @@ from highest_volatility.security.validation import (
     sanitize_single_ticker,
 )
 
-# Default on-disk cache root. Use project-visible folder as requested.
-CACHE_ROOT = Path("cache/prices")
+# Default on-disk cache root. Use project-visible folder unless overridden.
+def _resolve_cache_root() -> Path:
+    env_root = os.getenv("HV_CACHE_ROOT")
+    if env_root:
+        return Path(env_root).expanduser()
+    return Path("cache/prices")
+
+
+CACHE_ROOT = _resolve_cache_root()
 
 
 @dataclass
