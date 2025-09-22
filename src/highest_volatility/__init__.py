@@ -16,6 +16,8 @@ LEGACY_NAMESPACE_ALIASES: Mapping[str, str] = {
     "src.ingest": "highest_volatility.ingest",
     "src.pipeline": "highest_volatility.pipeline",
     "src.security": "highest_volatility.security",
+    "src.api": "highest_volatility.api",
+    "src.cli": "highest_volatility.cli",
 }
 
 __all__: list[str] = []

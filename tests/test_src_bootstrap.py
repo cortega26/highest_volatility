@@ -41,6 +41,14 @@ def test_highest_volatility_bootstraps_without_repo(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(sys, "path", cleaned, raising=False)
     monkeypatch.delitem(sys.modules, "highest_volatility", raising=False)
     monkeypatch.delitem(sys.modules, "src", raising=False)
+    for name in (
+        "src.api",
+        "src.cli",
+        "highest_volatility.api",
+        "highest_volatility.app.api",
+        "highest_volatility.cli",
+    ):
+        monkeypatch.delitem(sys.modules, name, raising=False)
 
     real_exists = Path.exists
 
@@ -51,6 +59,15 @@ def test_highest_volatility_bootstraps_without_repo(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(Path, "exists", fake_exists, raising=False)
 
+    real_import_module = importlib.import_module
+
+    def guarded_import(name: str, package: str | None = None) -> ModuleType:
+        if name == "src":
+            raise ModuleNotFoundError(name)
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", guarded_import, raising=False)
+
     module = importlib.import_module("highest_volatility")
 
     src_module = sys.modules.get("src")
@@ -58,3 +75,11 @@ def test_highest_volatility_bootstraps_without_repo(monkeypatch: pytest.MonkeyPa
     assert getattr(src_module, "__path__", []) == []
     assert "src.cache" in sys.modules
     assert module is sys.modules["highest_volatility"]
+
+    src_api = importlib.import_module("src.api")
+    hv_api = importlib.import_module("highest_volatility.api")
+    assert src_api is hv_api
+
+    src_cli = importlib.import_module("src.cli")
+    hv_cli = importlib.import_module("highest_volatility.cli")
+    assert src_cli is hv_cli
