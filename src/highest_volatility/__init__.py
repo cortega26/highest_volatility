@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import importlib
 import sys
-from typing import Iterable
+import pkgutil
+from pathlib import Path
+from types import ModuleType
+from typing import Iterable, Mapping
+
+LEGACY_NAMESPACE_ALIASES: Mapping[str, str] = {
+    "src.cache": "highest_volatility.cache",
+    "src.config": "highest_volatility.config",
+    "src.datasource": "highest_volatility.datasource",
+    "src.ingest": "highest_volatility.ingest",
+    "src.pipeline": "highest_volatility.pipeline",
+    "src.security": "highest_volatility.security",
+}
 
 __all__: list[str] = []
 
@@ -28,24 +39,75 @@ def _ensure_src_namespace() -> None:
         return
 
     try:
-        importlib.import_module("src")
-        return
+        src_module = importlib.import_module("src")
     except ModuleNotFoundError:
-        pass
+        src_module = _bootstrap_src_namespace()
+    else:
+        _register_src_aliases(src_module)
+        return
+
+    if src_module is not None:
+        _register_src_aliases(src_module)
+
+
+def _bootstrap_src_namespace() -> ModuleType:
+    """Create or load the legacy ``src`` namespace."""
 
     package_root = Path(__file__).resolve().parents[2]
     candidate = package_root / "src"
-    if not candidate.exists():
-        # Nothing we can do—bubble up the original error for visibility.
-        raise ModuleNotFoundError(
-            "The 'src' package is not available and could not be bootstrapped."
-        ) from None
+    if candidate.exists():
+        root_str = str(package_root)
+        if root_str not in _sys_path_iter():
+            sys.path.insert(0, root_str)
+        return importlib.import_module("src")
 
-    root_str = str(package_root)
-    if root_str not in _sys_path_iter():
-        sys.path.insert(0, root_str)
+    module = ModuleType("src")
+    module.__path__ = []  # type: ignore[attr-defined]
+    module.__package__ = "src"
+    existing = sys.modules.setdefault("src", module)
+    return existing
 
-    importlib.import_module("src")
+
+def _register_src_aliases(module: ModuleType) -> None:
+    """Populate ``sys.modules`` with legacy aliases for :mod:`highest_volatility`."""
+
+    if getattr(module, "_highest_volatility_aliases", False):
+        return
+
+    alias_helper = getattr(module, "_alias_namespace", None)
+    if alias_helper is None:
+        alias_helper = _alias_namespace
+        setattr(module, "_alias_namespace", alias_helper)
+
+    for legacy, target in LEGACY_NAMESPACE_ALIASES.items():
+        alias_helper(legacy, target)
+
+    setattr(module, "_highest_volatility_aliases", True)
+
+
+def _alias_namespace(old: str, new: str) -> None:
+    """Register ``old`` as an alias of ``new`` within :mod:`sys.modules`."""
+
+    try:
+        new_module = importlib.import_module(new)
+    except ModuleNotFoundError:
+        return
+
+    sys.modules.setdefault(old, new_module)
+
+    new_path = getattr(new_module, "__path__", None)
+    if not new_path:
+        return
+
+    prefix = f"{new}."
+    prefix_len = len(new)
+    for module_info in pkgutil.walk_packages(new_path, prefix):
+        try:
+            module = importlib.import_module(module_info.name)
+        except ModuleNotFoundError:
+            continue
+        alias = f"{old}{module_info.name[prefix_len:]}"
+        sys.modules.setdefault(alias, module)
 
 
 def _sys_path_iter() -> Iterable[str]:
