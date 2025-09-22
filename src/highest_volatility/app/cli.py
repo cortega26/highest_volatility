@@ -28,8 +28,8 @@ load_plugins()
 METRIC_CHOICES = sorted(METRIC_REGISTRY.keys())
 
 
-def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    """Parse command line arguments."""
+def build_parser() -> argparse.ArgumentParser:
+    """Create the CLI argument parser."""
 
     parser = argparse.ArgumentParser(
         description="Find most volatile Fortune 100 stocks"
@@ -134,7 +134,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Fetch prices asynchronously via HTTP API",
     )
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parse command line arguments."""
+
+    return build_parser().parse_args(argv)
 
 
 @dataclass(frozen=True)
