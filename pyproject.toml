@@ -21,6 +21,11 @@ dependencies = [
     "pydantic-settings",
     "httpx",
     "pandas-market-calendars",
+    "numpy",
+    "requests",
+    "selenium",
+    "selenium-stealth",
+    "webdriver-manager",
 ]
 
 [project.optional-dependencies]
