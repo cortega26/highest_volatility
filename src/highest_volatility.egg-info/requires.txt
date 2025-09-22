@@ -30,3 +30,6 @@ vcrpy
 ruff
 mypy
 hypothesis
+
+[perf]
+locust==2.24.1
