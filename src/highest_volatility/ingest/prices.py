@@ -90,11 +90,16 @@ def download_price_history(
         chunk_sleep=chunk_sleep,
     )
 
-    if matrix_mode == "batch":
-        batch_result = downloaders.download_batch(batch_request, download_with_retry)
-        return batch_result.to_dataframe(trim_start=start_dt)
+    normalized_mode = matrix_mode.lower()
+    use_cache_flag = use_cache
+    if normalized_mode == "cache":
+        normalized_mode = "batch"
+        use_cache_flag = True
 
-    if matrix_mode == "async":
+    if normalized_mode not in {"batch", "async"}:
+        raise ValueError(f"Unsupported matrix_mode: {matrix_mode}")
+
+    if normalized_mode == "async":
         async_end = date.today()
         async_start = full_backfill_start(interval if interval != "60m" else "1h", today=async_end)
 
@@ -114,7 +119,15 @@ def download_price_history(
         async_result = asyncio.run(downloaders.download_async(async_request))
         return async_result.to_dataframe(trim_start=start_dt)
 
-    if not use_cache or load_cached is None or save_cache is None or merge_incremental is None:
+    can_use_cache = (
+        normalized_mode == "batch"
+        and use_cache_flag
+        and load_cached is not None
+        and save_cache is not None
+        and merge_incremental is not None
+    )
+
+    if not can_use_cache:
         batch_result = downloaders.download_batch(batch_request, download_with_retry)
         return batch_result.to_dataframe(trim_start=start_dt)
 

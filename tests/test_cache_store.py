@@ -1,3 +1,5 @@
+import importlib
+
 import pandas as pd
 import pytest
 
@@ -23,3 +25,14 @@ def test_round_trip(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError):
         store.save_cache("DEF", "1d", df.iloc[0:0], "test")
+
+
+def test_cache_root_env_override(monkeypatch, tmp_path):
+    target = tmp_path / "custom-cache"
+    monkeypatch.setenv("HV_CACHE_ROOT", str(target))
+    reloaded = importlib.reload(store)
+    try:
+        assert reloaded.CACHE_ROOT == target
+    finally:
+        monkeypatch.delenv("HV_CACHE_ROOT", raising=False)
+        importlib.reload(store)

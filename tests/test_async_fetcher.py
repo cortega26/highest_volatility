@@ -304,7 +304,11 @@ async def test_http_async_get_prices(monkeypatch):
 
     ds = YahooHTTPAsyncDataSource()
     df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 3), "1d")
+    assert df.columns.tolist() == ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
     assert list(df["Adj Close"]) == [1.0, 2.0, 3.0]
+    assert list(df["Close"]) == [1.0, 2.0, 3.0]
+    assert df["Volume"].tolist() == [0, 0, 0]
+    assert df[["Open", "High", "Low"]].eq(df["Adj Close"], axis=0).all().all()
     assert df.index[0].year == 2020
 
 
@@ -359,8 +363,11 @@ async def test_http_async_get_prices_fill_adjclose_none(monkeypatch):
     ds = YahooHTTPAsyncDataSource()
     df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 4), "1d")
 
-    expected = [1.0, 2.05, 3.0, 4.05]
-    assert list(df["Adj Close"]) == expected
+    expected_adj = [1.0, 2.05, 3.0, 4.05]
+    expected_close = [1.05, 2.05, 3.05, 4.05]
+    assert list(df["Adj Close"]) == expected_adj
+    assert list(df["Close"]) == expected_close
+    assert df["Volume"].tolist() == [0, 0, 0, 0]
     assert not df["Adj Close"].isna().any()
     pd.testing.assert_index_equal(df.index, pd.to_datetime(timestamps, unit="s"))
 
@@ -424,10 +431,13 @@ async def test_http_async_get_prices_skips_missing_positions_and_warns(monkeypat
     expected_index = pd.to_datetime(
         [timestamps[0], timestamps[1], timestamps[3]], unit="s"
     )
-    expected_values = [1.0, 2.05, 4.0]
+    expected_adj = [1.0, 2.05, 4.0]
+    expected_close = [1.05, 2.05, 4.0]
 
     pd.testing.assert_index_equal(df.index, expected_index)
-    assert list(df["Adj Close"]) == expected_values
+    assert list(df["Adj Close"]) == expected_adj
+    assert list(df["Close"]) == expected_close
+    assert df["Volume"].tolist() == [0, 0, 0]
     assert "Dropped 2 missing Yahoo price rows" in caplog.text
 
 
@@ -604,7 +614,11 @@ async def test_yahoo_async_get_prices_falls_back_to_close(monkeypatch):
 
     ds = YahooAsyncDataSource()
     df = await ds.get_prices("TEST", date(2020, 1, 1), date(2020, 1, 3), "1d")
+    assert df.columns.tolist() == ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
     assert list(df["Adj Close"]) == [10.0, 11.0, 12.0]
+    pd.testing.assert_series_equal(df["Adj Close"], df["Close"], check_names=False)
+    assert df["Volume"].tolist() == [0, 0, 0]
+    assert df[["Open", "High", "Low"]].eq(df["Adj Close"], axis=0).all().all()
     assert df.index[0].year == 2020
 
 
