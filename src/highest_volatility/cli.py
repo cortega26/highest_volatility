@@ -17,4 +17,4 @@ del _attr, _APP_CLI, import_module
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(globals()["main"]())
