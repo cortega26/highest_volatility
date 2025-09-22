@@ -32,7 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     """Create the CLI argument parser."""
 
     parser = argparse.ArgumentParser(
-        description="Find most volatile Fortune 100 stocks"
+        description="Find most volatile Fortune 100 stocks",
+        allow_abbrev=False,
     )
     parser.add_argument(
         "--lookback-days",
@@ -77,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--prepost",
         action="store_true",
         help="Include pre/post market data for intraday intervals",
+    )
+    parser.add_argument(
+        "--tickers",
+        nargs="+",
+        help="Ticker symbols to process",
     )
     parser.add_argument(
         "--validate-universe",
@@ -299,9 +305,26 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parse_args(argv)
     timings: dict[str, float] = {}
 
-    print("[1/4] Building universe (Selenium)…", flush=True)
-    universe_result = _build_universe_step(args)
-    timings["build_universe"] = universe_result.duration
+    if args.tickers:
+        print("[1/4] Using provided tickers…", flush=True)
+        normalized_tickers = list(dict.fromkeys(ticker.upper() for ticker in args.tickers))
+        fortune = pd.DataFrame(
+            {
+                "ticker": normalized_tickers,
+                "company": [None] * len(normalized_tickers),
+                "rank": [None] * len(normalized_tickers),
+            }
+        )
+        universe_result = BuildUniverseResult(
+            tickers=normalized_tickers,
+            fortune=fortune,
+            duration=0.0,
+        )
+        timings["build_universe"] = universe_result.duration
+    else:
+        print("[1/4] Building universe (Selenium)…", flush=True)
+        universe_result = _build_universe_step(args)
+        timings["build_universe"] = universe_result.duration
     print(f"      Universe size: {len(universe_result.tickers)} tickers", flush=True)
     if len(universe_result.tickers) < args.print_top:
         raise SystemExit(
