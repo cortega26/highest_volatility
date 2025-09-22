@@ -22,3 +22,7 @@ streamlit
 pydantic-settings
 httpx
 pandas-market-calendars
+altair
+joblib
+python-dateutil
+pandas-datareader
