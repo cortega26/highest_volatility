@@ -12,4 +12,6 @@ cache/
 .cache/
 src/.cache/
 mypy.ini
+dist/
+build/
 
