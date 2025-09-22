@@ -104,6 +104,14 @@ selected with the ``--metric`` option:
 - ``var`` – value at risk (VaR)
 - ``sortino`` – annualised Sortino ratio
 
+### Supplying explicit tickers
+
+Pass one or more symbols via ``--tickers`` to bypass the Selenium-backed Fortune
+scraper and operate on an ad-hoc universe. The CLI normalises the provided
+strings to uppercase, removes duplicates while preserving order, and skips the
+universe cache refresh. This mirrors the GitHub Actions workflow that refreshes
+prices for a static watchlist each night.
+
 ## CLI Internals & Rollback Plan
 
 The CLI now orchestrates four focused steps – universe construction, price
