@@ -6,11 +6,11 @@ loading and caching price history.
 ## Module Layout
 
 Reusable components now live under the unified :mod:`highest_volatility`
-namespace. For example, caching helpers are available from
-``highest_volatility.cache`` and security sanitizers reside in
-``highest_volatility.security``. The historical ``src.*`` namespace has been
-retired; import callers should reference the canonical package modules
-directly.
+namespace. Importers must target the canonical package modules—caching helpers
+are exposed via ``highest_volatility.cache`` and security sanitizers reside in
+``highest_volatility.security``. Compatibility shims for the legacy
+``src.*`` namespace have been removed, so downstream projects need to update
+their imports to the ``highest_volatility.*`` modules before upgrading.
 
 ## Data API
 

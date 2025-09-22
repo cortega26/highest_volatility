@@ -1,11 +1,13 @@
 # Highest Volatility API Reference
 
 The FastAPI application in `highest_volatility.app.api` exposes operational
-endpoints for working with cached equity data and derived metrics.  Unless
+endpoints for working with cached equity data and derived metrics. This
+maintained module replaces the deprecated `src/api/__init__.py` entry point, so
+deployments must target `highest_volatility.app.api:app` directly. Unless
 otherwise noted, all endpoints respond with JSON and share a common error
-contract described in [Error handling](#error-handling). Deployments should
-run `uvicorn highest_volatility.app.api:app` (or an equivalent ASGI server
-command) to start the service. The table below summarises the exposed routes.
+contract described in [Error handling](#error-handling). Run `uvicorn
+highest_volatility.app.api:app` (or an equivalent ASGI server command) to start
+the service. The table below summarises the exposed routes.
 
 | Method | Path              | Description                             |
 | ------ | ----------------- | --------------------------------------- |
