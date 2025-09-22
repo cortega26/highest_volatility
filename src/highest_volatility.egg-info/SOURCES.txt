@@ -2,7 +2,6 @@ README.md
 pyproject.toml
 src/__init__.py
 src/cli.py
-src/api/__init__.py
 src/highest_volatility/__init__.py
 src/highest_volatility/__main__.py
 src/highest_volatility/cli.py
@@ -26,7 +25,6 @@ src/highest_volatility/cache/merge.py
 src/highest_volatility/cache/store.py
 src/highest_volatility/compute/__init__.py
 src/highest_volatility/compute/metrics.py
-src/highest_volatility/compute/volatility.py
 src/highest_volatility/config/__init__.py
 src/highest_volatility/config/interval_policy.py
 src/highest_volatility/datasource/__init__.py

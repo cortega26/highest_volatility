@@ -23,3 +23,12 @@ __all__ = [
     "rolling_volatility",
     "sharpe_ratio",
 ]
+
+
+def __getattr__(name: str):
+    if name == "volatility":  # pragma: no cover - defensive guardrail
+        raise AttributeError(
+            "highest_volatility.compute.volatility was removed; import from "
+            "highest_volatility.compute.metrics instead."
+        )
+    raise AttributeError(f"module 'highest_volatility.compute' has no attribute {name!r}")

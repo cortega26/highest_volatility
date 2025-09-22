@@ -1,3 +1,5 @@
+import importlib
+
 import pandas as pd
 import pytest
 
@@ -71,6 +73,13 @@ def test_metrics_expected_values():
     )
     result_sharpe = metrics.sharpe_ratio(prices).round(6)
     pd.testing.assert_frame_equal(result_sharpe, expected_sharpe)
+
+
+def test_compute_volatility_guardrail():
+    module = importlib.import_module("highest_volatility.compute")
+    with pytest.raises(AttributeError) as excinfo:
+        getattr(module, "volatility")
+    assert "highest_volatility.compute.metrics" in str(excinfo.value)
 
 
 try:  # pragma: no cover - optional dependency

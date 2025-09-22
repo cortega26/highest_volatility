@@ -3,18 +3,17 @@
 The FastAPI application in `highest_volatility.app.api` exposes operational
 endpoints for working with cached equity data and derived metrics.  Unless
 otherwise noted, all endpoints respond with JSON and share a common error
-contract described in [Error handling](#error-handling).
-
-A lightweight data API in `src/api/__init__.py` continues to serve the
-Fortune 500 ticker export used by downstream tooling.  The table below
-summarises the exposed routes.
+contract described in [Error handling](#error-handling). Deployments should
+run `uvicorn highest_volatility.app.api:app` (or an equivalent ASGI server
+command) to start the service. The table below summarises the exposed routes.
 
 | Method | Path              | Description                             |
 | ------ | ----------------- | --------------------------------------- |
 | GET    | `/universe`       | Return a validated Fortune ticker list. |
 | GET    | `/prices`         | Fetch cached Yahoo Finance price data.  |
 | GET    | `/metrics`        | Compute metrics for requested tickers.  |
-| GET    | `/fortune-tickers`| Serve the cached Fortune 500 tickers.   |
+| GET    | `/healthz`        | Report process and background task state. |
+| GET    | `/readyz`         | Report readiness of external services.  |
 
 ## `/universe`
 
@@ -130,27 +129,19 @@ fields per row.
   unexpected exception.  The response still follows the `{"detail": "..."}`
   contract described below.
 
-## `/fortune-tickers`
+## `/healthz`
 
-The legacy data API serves the raw Fortune 500 scrape used by caching helpers.
+Return process-level diagnostics and background task state. The payload mirrors
+the structure returned by `highest_volatility.app.api.healthz`. A healthy
+response includes `{"status": "ok"}` while degraded Redis/cache refresh tasks
+surface `status="error"` alongside contextual details.
 
-### Query parameters
+## `/readyz`
 
-| Name  | Type   | Default | Description |
-| ----- | ------ | ------- | ----------- |
-| `fmt` | string | `"json"` | Output format (`"json"` or `"parquet"`).
-
-### Success response
-
-* `fmt=json` → `{"tickers": ["AAPL", "MSFT", ...]}`.
-* `fmt=parquet` → binary parquet payload with content disposition
-  `fortune_tickers.parquet`.
-
-### Error responses
-
-* `400 Bad Request` if `fmt` is not recognised.
-* `404 Not Found` when the Fortune cache is unavailable.
-* `503 Service Unavailable` when cache serialisation fails.
+Signal that dependencies such as Redis are reachable and caches are primed. The
+endpoint returns `200 OK` when FastAPI Cache uses Redis and the background task
+is running. Otherwise it returns `503 Service Unavailable` with diagnostic
+fields describing the failing component.
 
 ## Error handling
 
