@@ -158,6 +158,50 @@ cache. Unset the variable to operate entirely offline.
 Results are displayed as a sortable table with warning banners when price data
 is unavailable for the selected configuration.
 
+## Progressive Web App & Offline Workflow
+
+The FastAPI service now ships a progressive web app (PWA) at the API root. It
+loads the cached ticker universe, lets you annotate symbols, and synchronises
+queued updates once connectivity is restored.
+
+### Running locally
+
+1. Install runtime dependencies and Playwright:
+
+   ```bash
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
+
+2. Start the API (the Docker workflow continues to work):
+
+   ```bash
+   uvicorn highest_volatility.app.api:app --reload
+   ```
+
+3. Open `http://127.0.0.1:8000/` in a Chromium-based browser. The service
+   worker precaches the static shell and API responses so the page keeps
+   rendering while offline.
+
+4. Toggle airplane mode (or otherwise disable networking), add a note to a
+   ticker, and observe the "Pending" badge. When you reconnect, the service
+   automatically merges queued writes against the server using a last-write-wins
+   policy and records the resolution in the audit trail.
+
+### Testing offline sync
+
+End-to-end coverage lives in `tests/test_pwa_offline.py`. It spins up a FastAPI
+instance, drives Chromium with Playwright, and exercises the offline caching and
+conflict-resolution behaviour:
+
+```bash
+pytest tests/test_pwa_offline.py --headed --browser chromium
+```
+
+Run the test headlessly by dropping the `--headed` flag. The suite will install
+its own service worker and simulate disconnections via Playwright's
+`context.set_offline(True)` API.
+
 ## Cache Refresh
 
 A background task runs when the API starts, periodically refreshing cached

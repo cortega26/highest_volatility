@@ -1,0 +1,17 @@
+{
+  "name": "Highest Volatility Offline Console",
+  "short_name": "HV Offline",
+  "description": "Explore cached market data, annotate tickers, and sync changes once you're back online.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/web/icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
