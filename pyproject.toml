@@ -39,6 +39,8 @@ dev = [
     "ruff",
     "mypy",
     "hypothesis",
+    "pytest-playwright",
+    "playwright",
 ]
 perf = [
     "locust==2.24.1",

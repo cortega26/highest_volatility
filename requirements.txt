@@ -11,6 +11,8 @@ selenium-stealth
 pyarrow
 pytest
 pytest-asyncio
+pytest-playwright
+playwright
 aiohttp
 tenacity
 fastapi

@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import json
 import re
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from typing import Any, Iterable, cast
@@ -27,6 +28,9 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
 from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -142,6 +146,13 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
 app = FastAPI(title="Highest Volatility API", default_response_class=ORJSONResponse)
 app.add_middleware(SecureHeadersMiddleware)
 
+WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
+INDEX_PATH = WEB_ROOT / "index.html"
+SERVICE_WORKER_PATH = WEB_ROOT / "service-worker.js"
+MANIFEST_PATH = WEB_ROOT / "manifest.webmanifest"
+if WEB_ROOT.exists():
+    app.mount("/web", StaticFiles(directory=WEB_ROOT, html=True), name="web")
+
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
     """Attach cache metadata and entity tags for selected endpoints."""
@@ -225,6 +236,56 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CacheControlMiddleware, settings=settings)
 app.add_middleware(GZipMiddleware, minimum_size=128)
 
+
+class AnnotationPayload(BaseModel):
+    """Request payload for annotation updates."""
+
+    note: str = Field(..., min_length=1, max_length=2000)
+    client_timestamp: datetime
+
+
+def _ensure_annotation_state() -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]], asyncio.Lock]:
+    annotations = getattr(app.state, "annotations", None)
+    history = getattr(app.state, "annotation_history", None)
+    lock = getattr(app.state, "annotation_lock", None)
+    if annotations is None:
+        annotations = {}
+        app.state.annotations = annotations
+    if history is None:
+        history = {}
+        app.state.annotation_history = history
+    if lock is None:
+        lock = asyncio.Lock()
+        app.state.annotation_lock = lock
+    return annotations, history, lock
+
+
+def _serve_file(path: Path, *, media_type: str | None = None) -> FileResponse:
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return FileResponse(path, media_type=media_type)
+
+
+@app.get("/", include_in_schema=False)
+async def web_index() -> FileResponse:
+    """Serve the progressive web app shell."""
+
+    return _serve_file(INDEX_PATH, media_type="text/html")
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def web_manifest() -> FileResponse:
+    """Expose the web manifest for installability."""
+
+    return _serve_file(MANIFEST_PATH, media_type="application/manifest+json")
+
+
+@app.get("/service-worker.js", include_in_schema=False)
+async def web_service_worker() -> FileResponse:
+    """Serve the service worker from the application root."""
+
+    return _serve_file(SERVICE_WORKER_PATH, media_type="application/javascript")
+
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
 app.state.limiter = limiter
 # Per-endpoint limits can be overridden with ``@app.state.limiter.limit("X/minute")``
@@ -275,6 +336,7 @@ async def on_startup() -> None:
             delay=settings.cache_refresh_interval,
         )
     )
+    _ensure_annotation_state()
 
 
 @app.on_event("shutdown")
@@ -385,6 +447,64 @@ async def readyz() -> JSONResponse:
     if not overall_ok:
         body["redis"]["detail"] = redis_report.get("detail", "redis_unreachable")
     return JSONResponse(status_code=status_code, content=body)
+
+
+@app.get("/annotations", tags=["annotations"])
+async def list_annotations(request: Request) -> Any:
+    """Return all stored annotations."""
+
+    annotations, _, lock = _ensure_annotation_state()
+    async with lock:
+        records = [record.copy() for record in annotations.values()]
+    return _prepare_response_payload(request, records)
+
+
+@app.get("/annotations/history/{ticker}", tags=["annotations"])
+async def annotation_history(request: Request, ticker: str) -> Any:
+    """Return the audit trail for a single ticker."""
+
+    try:
+        sanitized = sanitize_multiple_tickers(ticker, max_tickers=1)[0]
+    except SanitizationError as exc:
+        _handle_error(exc, event="annotations_validation", endpoint="annotations")
+    _, history, lock = _ensure_annotation_state()
+    async with lock:
+        entries = [entry.copy() for entry in history.get(sanitized, [])]
+    return _prepare_response_payload(request, entries)
+
+
+@app.put("/annotations/{ticker}", tags=["annotations"])
+async def upsert_annotation(request: Request, ticker: str, payload: AnnotationPayload) -> Any:
+    """Persist a ticker annotation and record its revision history."""
+
+    try:
+        sanitized = sanitize_multiple_tickers(ticker, max_tickers=1)[0]
+    except SanitizationError as exc:
+        _handle_error(exc, event="annotations_validation", endpoint="annotations")
+
+    note = payload.note.strip()
+    if not note:
+        error = SanitizationError("Note cannot be empty.", field="note")
+        _handle_error(error, event="annotations_validation", endpoint="annotations")
+
+    client_timestamp = payload.client_timestamp
+    if client_timestamp.tzinfo is None:
+        client_timestamp = client_timestamp.replace(tzinfo=timezone.utc)
+    else:
+        client_timestamp = client_timestamp.astimezone(timezone.utc)
+    server_timestamp = datetime.now(timezone.utc)
+
+    annotations, history, lock = _ensure_annotation_state()
+    async with lock:
+        record = {
+            "ticker": sanitized,
+            "note": note,
+            "updated_at": server_timestamp,
+            "client_timestamp": client_timestamp,
+        }
+        annotations[sanitized] = record
+        history.setdefault(sanitized, []).append(record.copy())
+    return _prepare_response_payload(request, record)
 
 
 def _prepare_response_payload(request: Request, payload: Any) -> Any:
