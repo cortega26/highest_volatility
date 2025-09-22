@@ -17,6 +17,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -e .
       - name: Capture runtime diagnostics
         run: |
           python scripts/diagnose_environment.py --summary \
