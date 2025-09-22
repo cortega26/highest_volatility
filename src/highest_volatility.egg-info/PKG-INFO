@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: highest_volatility
-Version: 0.0.0
+Version: 1.0.0
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: pandas
@@ -19,6 +19,7 @@ Requires-Dist: redis
 Requires-Dist: streamlit
 Requires-Dist: pydantic-settings
 Requires-Dist: httpx
+Requires-Dist: pandas-market-calendars
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: pytest-asyncio; extra == "dev"
@@ -33,6 +34,16 @@ Requires-Dist: hypothesis; extra == "dev"
 Tools for exploring equity price volatility.  The project includes utilities for
 loading and caching price history.
 
+## Module Layout
+
+Reusable components now live under the unified :mod:`highest_volatility`
+namespace. For example, caching helpers are available from
+``highest_volatility.cache`` and security sanitizers reside in
+``highest_volatility.security``. The legacy ``src.*`` entry points remain
+available via :mod:`sys.modules` aliases so external consumers can migrate
+incrementally, but internal imports and documentation reference the consolidated
+package.
+
 ## Data API
 
 A lightweight FastAPI service exposes cached price data and the Fortune ticker
@@ -40,14 +51,50 @@ universe. Build and run it with Docker:
 
 ```bash
 docker build -t hv-api .
-docker run -p 8000:8000 hv-api
+docker run --rm -p 8000:8000 hv-api
 ```
 
-The service provides two endpoints:
+Runtime notes:
 
-- ``/prices/{ticker}`` – return cached prices for ``ticker``. Use the ``fmt``
-  query parameter to request ``json`` (default) or ``parquet`` bytes.
-- ``/fortune-tickers`` – return the cached Fortune 500 ticker list.
+- The container publishes the API on port ``8000``; map it to a host port as
+  needed (for example ``-p 8000:8000``).
+- ``PYTHONPATH`` is set to ``/app/src`` so ``highest_volatility`` can be
+  imported without installing the package separately.
+- Override any FastAPI settings with ``HV_``-prefixed environment variables.
+  Common examples include ``HV_REDIS_URL`` (default ``redis://localhost:6379/0``)
+  and ``HV_CACHE_REFRESH_INTERVAL``.
+
+The service provides several HTTP endpoints documented in
+[`docs/api.md`](docs/api.md). Refer to that guide for request/response schemas,
+error handling behaviour, and configuration options.
+
+### Validation Notes
+
+Cached Fortune tables may contain raw tickers that use punctuation such as dots
+(``BRK.B``). The universe builder now preserves those raw strings while carrying
+their normalized Yahoo Finance representation (``BRK-B``). Downstream alignment
+and ranking operate on the normalized variant so that cached ``rank`` and
+``company`` metadata are retained without re-enumerating positions. The
+``tests/test_universe_rank_alignment.py`` coverage exercises this code path by
+loading cached data with dotted tickers and ensuring the original ranks remain
+intact.
+
+Incremental price refreshes now re-request the final cached session for
+intraday intervals (``1m``/``1h`` variants) so late-published bars within the
+same trading day are merged correctly. The synchronous and asynchronous
+fetchers share this behavior, with ``tests/test_price_fetcher.py`` verifying the
+intraday cache replay alongside the existing daily interval regression.
+
+### Batch Price Downloads
+
+The synchronous ``download_price_history`` helper downloads tickers in chunks of
+40 symbols. Each chunk is submitted to a thread pool so multiple batches can be
+in-flight when ``max_workers`` is greater than one. A failed chunk will fall
+back to sequential single-ticker retries inside its worker without blocking
+other threads. Tune ``max_workers`` based on available CPU capacity and the
+latency of your network connection; values between 4 and 8 work well for most
+desktop environments. Introduce a short ``chunk_sleep`` (for example, ``0.5``
+seconds) after each batch if the upstream API begins throttling requests.
 
 Client utilities such as ``cache.store`` will hydrate missing local cache files
 from this API when the ``HV_API_BASE_URL`` environment variable is set.
@@ -68,6 +115,21 @@ selected with the ``--metric`` option:
 - ``max_drawdown`` – maximum drawdown
 - ``var`` – value at risk (VaR)
 - ``sortino`` – annualised Sortino ratio
+
+## CLI Internals & Rollback Plan
+
+The CLI now orchestrates four focused steps – universe construction, price
+downloads (with sanitisation via ``highest_volatility.app.sanitization``),
+metric computation, and result rendering. Each step returns a small data class
+so the workflow can be unit tested in isolation and downstream tooling can
+reuse the intermediate structures.
+
+To roll back to the previous monolithic ``main`` implementation, restore
+``src/highest_volatility/app/cli.py`` from the last release tag or a specific
+commit and remove ``src/highest_volatility/app/sanitization.py``. For example,
+``git checkout <prior-tag> -- src/highest_volatility/app/cli.py`` followed by
+``git rm src/highest_volatility/app/sanitization.py`` reverts the refactor
+while keeping the rest of the repository unchanged.
 
 ## Streamlit App
 
@@ -109,8 +171,12 @@ configured with the ``HV_CACHE_REFRESH_INTERVAL`` environment variable and
 defaults to once every 24 hours.
 
 A helper script is provided to refresh cached price data for all locally stored
-tickers.  It iterates over the tickers under `.cache/prices/<interval>` and
-updates each one sequentially.
+tickers. It iterates over the tickers under `cache/prices/<interval>` and
+updates each one sequentially. Each ticker's Parquet file and JSON manifest
+live side by side in that directory (for example, `AAPL.parquet` and
+`AAPL.json`), matching the `_paths` helper in `highest_volatility/cache/store.py`.
+Set the ``HV_CACHE_ROOT`` environment variable to point cache storage to an
+alternate location when deploying on ephemeral filesystems or managed hosts.
 
 Run the scheduler from the repository root:
 
