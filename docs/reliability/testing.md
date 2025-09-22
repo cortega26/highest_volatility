@@ -12,6 +12,40 @@ tooling introduced for the Highest Volatility platform.
 - A running instance of the FastAPI service. The examples assume the default
   development server bound to `http://localhost:8000`.
 
+## Health and Readiness Probes
+
+Kubernetes and container platforms should monitor the API via the new
+``/healthz`` (liveness) and ``/readyz`` (readiness) endpoints.
+
+- ``/healthz`` returns HTTP 200 while the process is running and the background
+  cache refresh task is healthy. A failed task produces HTTP 503 so orchestrators
+  can restart the pod.
+- ``/readyz`` returns HTTP 200 only when Redis is reachable and the cache is in a
+  ``healthy`` state. Redis outages or cache bootstrap issues surface as HTTP 503
+  responses.
+
+The Docker image now embeds a native ``HEALTHCHECK`` invoking ``/healthz``. For
+Kubernetes deployments, wire the probes into the pod spec:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 20
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+Monitor probe health with ``kubectl describe pod`` and surface sustained
+``/readyz`` failures as alerts because they indicate Redis downtime or cache
+initialisation faults.
+
 ## Chaos Experiments (Pytest)
 
 Targeted experiments live in `tests/test_chaos_experiments.py` and are marked
