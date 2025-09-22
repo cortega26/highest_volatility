@@ -20,6 +20,11 @@ Requires-Dist: streamlit
 Requires-Dist: pydantic-settings
 Requires-Dist: httpx
 Requires-Dist: pandas-market-calendars
+Requires-Dist: numpy
+Requires-Dist: requests
+Requires-Dist: selenium
+Requires-Dist: selenium-stealth
+Requires-Dist: webdriver-manager
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: pytest-asyncio; extra == "dev"
