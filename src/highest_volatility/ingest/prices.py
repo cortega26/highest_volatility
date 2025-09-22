@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Dict, List
 from contextlib import contextmanager
 import logging
@@ -68,7 +68,7 @@ def download_price_history(
         Raw DataFrame as returned by :func:`yfinance.download`.
     """
 
-    end_dt = datetime.utcnow()
+    end_dt = datetime.now(timezone.utc)
     start_dt = end_dt - timedelta(days=lookback_days * 2)
 
     def _download(*args, **kwargs):
