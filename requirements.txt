@@ -18,6 +18,7 @@ uvicorn
 fastapi-cache2
 slowapi
 redis
+orjson
 streamlit
 pydantic-settings
 httpx

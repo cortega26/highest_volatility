@@ -14,9 +14,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
-from typing import Any, cast
+from typing import Any, Iterable, cast
 
 import redis.asyncio as redis
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -32,7 +33,11 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse, Response
+from fastapi.responses import ORJSONResponse
+
+import pandas as pd
 
 from highest_volatility.app.cli import (
     DEFAULT_LOOKBACK_DAYS,
@@ -134,7 +139,7 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-app = FastAPI(title="Highest Volatility API")
+app = FastAPI(title="Highest Volatility API", default_response_class=ORJSONResponse)
 app.add_middleware(SecureHeadersMiddleware)
 
 
@@ -218,6 +223,7 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(CacheControlMiddleware, settings=settings)
+app.add_middleware(GZipMiddleware, minimum_size=128)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
 app.state.limiter = limiter
@@ -396,6 +402,65 @@ def _prepare_response_payload(request: Request, payload: Any) -> Any:
     return encoded
 
 
+_PRICE_COLUMN_PATTERN = re.compile(r"^[A-Za-z0-9 _\-]+$")
+
+
+def _parse_column_filters(raw: str | None) -> list[str]:
+    """Return a sanitized list of column selectors derived from ``raw``."""
+
+    if raw is None:
+        return []
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if not parts:
+        raise SanitizationError("At least one column must be supplied.", field="columns")
+    invalid = [part for part in parts if not _PRICE_COLUMN_PATTERN.fullmatch(part)]
+    if invalid:
+        raise SanitizationError("Column name contains invalid characters.", field="columns")
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for part in parts:
+        key = part.lower()
+        if key not in seen:
+            seen.add(key)
+            normalized.append(part)
+    return normalized
+
+
+def _resolve_column_labels(frame: pd.DataFrame) -> dict[str, Any]:
+    """Map lower-case column selectors to canonical labels for ``frame``."""
+
+    if isinstance(frame.columns, pd.MultiIndex):
+        level = frame.columns.get_level_values(0)
+        ordered: list[Any] = []
+        seen: set[str] = set()
+        for label in level:
+            lower = str(label).lower()
+            if lower not in seen:
+                seen.add(lower)
+                ordered.append(label)
+        return {str(label).lower(): label for label in ordered}
+    return {str(label).lower(): label for label in frame.columns}
+
+
+def _filter_price_columns(frame: pd.DataFrame, selectors: Iterable[str]) -> pd.DataFrame:
+    """Return ``frame`` restricted to the requested ``selectors``."""
+
+    selected = list(selectors)
+    if not selected:
+        return frame
+    mapping = _resolve_column_labels(frame)
+    missing = [item for item in selected if item.lower() not in mapping]
+    if missing:
+        joined = ", ".join(sorted(missing))
+        raise SanitizationError(f"Unknown columns requested: {joined}.", field="columns")
+    if isinstance(frame.columns, pd.MultiIndex):
+        allowed = {mapping[item.lower()] for item in selected}
+        mask = frame.columns.get_level_values(0).isin(allowed)
+        return frame.loc[:, mask]
+    ordered_labels = [mapping[item.lower()] for item in selected]
+    return frame.loc[:, ordered_labels]
+
+
 @app.get("/universe")
 @cache(expire=settings.cache_ttl_universe)
 def universe_endpoint(
@@ -438,10 +503,12 @@ def prices_endpoint(
     lookback_days: int | None = None,
     interval: str | None = None,
     prepost: bool | None = None,
+    columns: str | None = None,
     settings: Settings = Depends(get_settings),
 ):
     """Return price history for ``tickers``."""
 
+    column_filters: list[str]
     try:
         ticker_list = sanitize_multiple_tickers(
             tickers, max_tickers=REQUEST_TICKER_LIMIT
@@ -453,6 +520,7 @@ def prices_endpoint(
             maximum=LOOKBACK_MAX_DAYS,
         )
         iv = sanitize_interval(interval or settings.interval)
+        column_filters = _parse_column_filters(columns)
     except SanitizationError as exc:
         _handle_error(exc, event="prices_validation", endpoint="prices")
     pp = prepost if prepost is not None else settings.prepost
@@ -468,10 +536,14 @@ def prices_endpoint(
             context={"tickers": ticker_list, "interval": iv},
         )
         _handle_error(error, event="prices_failure", endpoint="prices")
-    if df.empty:
+    try:
+        filtered = _filter_price_columns(df, column_filters)
+    except SanitizationError as exc:
+        _handle_error(exc, event="prices_validation", endpoint="prices")
+    if filtered.empty:
         payload = {"data": []}
     else:
-        payload = json.loads(df.to_json(orient="split", date_format="iso"))
+        payload = json.loads(filtered.to_json(orient="split", date_format="iso"))
     return _prepare_response_payload(request, payload)
 
 
