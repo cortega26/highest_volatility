@@ -34,6 +34,11 @@ Modified` with the caching headers above so intermediaries can retain their
 objects. Updating the TTL environment variables takes effect on the next
 process restart.
 
+All JSON payloads now use FastAPI's `ORJSONResponse` for faster serialization,
+and the ASGI stack enables `GZipMiddleware`. Clients that send
+`Accept-Encoding: gzip` receive compressed responses annotated with
+`Content-Encoding: gzip`.
+
 ## `/universe`
 
 Return a curated Fortune universe backed by Selenium scraping and cached
@@ -85,6 +90,7 @@ from disk caches; cache misses trigger background refresh tasks.
 | `lookback_days`| int     | `Settings.lookback_days` (`HV_LOOKBACK_DAYS`, default `252`) | Rolling window size. Bounds: `30 ≤ lookback_days ≤ 2000`.
 | `interval`     | string  | `Settings.interval` (`HV_INTERVAL`, default `"1d"`) | Yahoo Finance interval string (`1d`, `1h`, `1wk`, `30m`, ...).
 | `prepost`      | bool    | `Settings.prepost` (`HV_PREPOST`, default `false`) | Include pre/post-market prices when supported.
+| `columns`      | string  | _optional_               | Comma-separated, case-insensitive OHLCV column groups to retain (for example, `columns=close` limits the payload to Close slices for every ticker).
 
 ### Success response
 
@@ -101,6 +107,12 @@ layout:
 
 If no rows are returned the endpoint responds with `{"data": []}` to denote an
 empty frame.
+
+When a `columns` parameter is supplied the service filters the DataFrame prior
+to serialization. For example, requesting
+`/prices?tickers=AAPL,MSFT&columns=close,adj close` returns only the `Close` and
+`Adj Close` entries for each ticker, dramatically reducing payload size for
+clients that do not need full OHLCV data.
 
 ### Error responses
 
