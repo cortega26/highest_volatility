@@ -37,7 +37,9 @@ The service provides several HTTP endpoints documented in
 [`docs/api.md`](docs/api.md). Refer to that guide for request/response schemas,
 error handling behaviour, and configuration options. Reliability commitments,
 error budgets, and alerting flows for the FastAPI layer and the ingestion jobs
-live in [`docs/reliability/slo.md`](docs/reliability/slo.md). Keep SLO dashboards
+live in [`docs/reliability/slo.md`](docs/reliability/slo.md). Operational drills,
+chaos experiments, and performance tooling are detailed in
+[`docs/reliability/testing.md`](docs/reliability/testing.md). Keep SLO dashboards
 and Alertmanager rules version-controlled alongside deployments and rerun
 `scripts/deploy_dashboards.py` after each release to ensure Grafana panels and
 PagerDuty routes reflect the current configuration.

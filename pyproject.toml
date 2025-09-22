@@ -39,6 +39,9 @@ dev = [
     "mypy",
     "hypothesis",
 ]
+perf = [
+    "locust==2.24.1",
+]
 
 [build-system]
 requires = [
