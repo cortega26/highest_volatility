@@ -17,6 +17,23 @@ the service. The table below summarises the exposed routes.
 | GET    | `/healthz`        | Report process and background task state. |
 | GET    | `/readyz`         | Report readiness of external services.  |
 
+## HTTP caching
+
+The `/universe`, `/prices`, and `/metrics` endpoints emit cache-friendly
+headers derived from the configured TTLs (`Settings.cache_ttl_*`). Responses are
+tagged as public and include:
+
+* `Cache-Control: public, max-age=<TTL>`
+* `Surrogate-Control: max-age=<TTL>` for CDN-aware caching layers
+* `Expires` calculated from the request time plus the TTL
+* A strong `ETag` generated from the canonical JSON payload
+
+Clients may revalidate cached payloads by sending the `If-None-Match` header.
+When the entity tag matches the current payload the API returns `304 Not
+Modified` with the caching headers above so intermediaries can retain their
+objects. Updating the TTL environment variables takes effect on the next
+process restart.
+
 ## `/universe`
 
 Return a curated Fortune universe backed by Selenium scraping and cached

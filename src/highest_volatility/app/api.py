@@ -12,12 +12,16 @@ can override default configuration values.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from typing import Any, cast
 
 import redis.asyncio as redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
@@ -132,6 +136,88 @@ class SecureHeadersMiddleware(BaseHTTPMiddleware):
 
 app = FastAPI(title="Highest Volatility API")
 app.add_middleware(SecureHeadersMiddleware)
+
+
+class CacheControlMiddleware(BaseHTTPMiddleware):
+    """Attach cache metadata and entity tags for selected endpoints."""
+
+    _TTL_ATTR_BY_PATH = {
+        "/universe": "cache_ttl_universe",
+        "/prices": "cache_ttl_prices",
+        "/metrics": "cache_ttl_metrics",
+    }
+
+    def __init__(self, app: FastAPI, *, settings: Settings) -> None:  # type: ignore[override]
+        super().__init__(app)
+        self._settings = settings
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        response = await call_next(request)
+        ttl_attr = self._TTL_ATTR_BY_PATH.get(request.url.path)
+        if ttl_attr is None:
+            return response
+        ttl = getattr(self._settings, ttl_attr, None)
+        if ttl is None:
+            return response
+        if response.status_code >= 400:
+            return response
+
+        serialized = getattr(request.state, "serialized_payload", None)
+        etag = getattr(request.state, "computed_etag", None)
+
+        if serialized is not None:
+            body_bytes = serialized.encode("utf-8")
+        else:
+            if hasattr(response, "body"):
+                raw_body = response.body or b""
+            else:
+                chunks = [chunk async for chunk in response.body_iterator]
+                raw_body = b"".join(chunks)
+            try:
+                canonical = json.dumps(
+                    json.loads(raw_body.decode("utf-8")),
+                    separators=(",", ":"),
+                    sort_keys=True,
+                    ensure_ascii=False,
+                )
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                body_bytes = raw_body
+            else:
+                body_bytes = canonical.encode("utf-8")
+
+        if etag is None:
+            etag = hashlib.sha256(body_bytes).hexdigest()
+
+        background = getattr(response, "background", None)
+        media_type = getattr(response, "media_type", None)
+        status_code = response.status_code
+        new_response = Response(content=body_bytes, status_code=status_code, media_type=media_type)
+        for key, value in response.headers.items():
+            if key.lower() == "content-length":
+                continue
+            new_response.headers[key] = value
+        if background is not None:
+            new_response.background = background
+        response = new_response
+
+        quoted_etag = f'"{etag}"'
+        if_none_match = request.headers.get("if-none-match")
+        if if_none_match:
+            candidates = {candidate.strip() for candidate in if_none_match.split(",")}
+            match_candidates = candidates & {quoted_etag, etag, f'W/{quoted_etag}'}
+            if match_candidates:
+                response.status_code = status.HTTP_304_NOT_MODIFIED
+                response.body = b""
+
+        response.headers["ETag"] = quoted_etag
+        response.headers["Cache-Control"] = f"public, max-age={ttl}"
+        response.headers["Surrogate-Control"] = f"max-age={ttl}"
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+        response.headers["Expires"] = format_datetime(expires_at, usegmt=True)
+        return response
+
+
+app.add_middleware(CacheControlMiddleware, settings=settings)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
 app.state.limiter = limiter
@@ -295,9 +381,25 @@ async def readyz() -> JSONResponse:
     return JSONResponse(status_code=status_code, content=body)
 
 
+def _prepare_response_payload(request: Request, payload: Any) -> Any:
+    """Normalise ``payload`` and stash canonical JSON for caching middleware."""
+
+    encoded = jsonable_encoder(payload)
+    serialized = json.dumps(
+        encoded,
+        separators=(",", ":"),
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    request.state.serialized_payload = serialized
+    request.state.computed_etag = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return encoded
+
+
 @app.get("/universe")
 @cache(expire=settings.cache_ttl_universe)
 def universe_endpoint(
+    request: Request,
     top_n: int | None = None,
     settings: Settings = Depends(get_settings),
 ):
@@ -324,12 +426,14 @@ def universe_endpoint(
             context={"top_n": limit},
         )
         _handle_error(error, event="universe_failure", endpoint="universe")
-    return {"tickers": tickers, "fortune": fortune.to_dict(orient="records")}
+    payload = {"tickers": tickers, "fortune": fortune.to_dict(orient="records")}
+    return _prepare_response_payload(request, payload)
 
 
 @app.get("/prices")
 @cache(expire=settings.cache_ttl_prices)
 def prices_endpoint(
+    request: Request,
     tickers: str,
     lookback_days: int | None = None,
     interval: str | None = None,
@@ -365,13 +469,16 @@ def prices_endpoint(
         )
         _handle_error(error, event="prices_failure", endpoint="prices")
     if df.empty:
-        return {"data": []}
-    return json.loads(df.to_json(orient="split", date_format="iso"))
+        payload = {"data": []}
+    else:
+        payload = json.loads(df.to_json(orient="split", date_format="iso"))
+    return _prepare_response_payload(request, payload)
 
 
 @app.get("/metrics")
 @cache(expire=settings.cache_ttl_metrics)
 def metrics_endpoint(
+    request: Request,
     tickers: str,
     metric: str | None = None,
     lookback_days: int | None = None,
@@ -431,7 +538,8 @@ def metrics_endpoint(
             context={"metric": met, "tickers": len(ticker_list)},
         )
         _handle_error(error, event="metrics_failure", endpoint="metrics")
-    return result.to_dict(orient="records")
+    payload = result.to_dict(orient="records")
+    return _prepare_response_payload(request, payload)
 
 
 def main() -> None:
