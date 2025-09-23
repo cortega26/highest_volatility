@@ -1,4 +1,8 @@
+import asyncio
+import threading
+
 import pandas as pd
+import pytest
 
 from highest_volatility.ingest import prices
 from datetime import date, datetime
@@ -23,6 +27,12 @@ def test_download_price_history_async(monkeypatch):
             return date(2020, 1, 6)
 
     class DT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is not None:
+                return datetime(2020, 1, 6, tzinfo=tz)
+            return datetime(2020, 1, 6)
+
         @classmethod
         def utcnow(cls):
             return datetime(2020, 1, 6)
@@ -52,6 +62,12 @@ def test_download_price_history_async_uses_60m_alias(monkeypatch):
             return date(2024, 1, 1)
 
     class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is not None:
+                return datetime(2024, 1, 1, tzinfo=tz)
+            return datetime(2024, 1, 1)
+
         @classmethod
         def utcnow(cls):
             return datetime(2024, 1, 1)
@@ -88,6 +104,45 @@ def test_download_price_history_async_uses_60m_alias(monkeypatch):
     assert interval_arg == "60m"
     assert not df.empty
 
+
+@pytest.mark.asyncio
+async def test_download_price_history_async_respects_running_loop(monkeypatch):
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return date(2021, 6, 1)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2021, 6, 1, tzinfo=tz)
+
+    async def fake_download(async_request):
+        idx = pd.date_range(datetime(2021, 5, 30), periods=2)
+        frames = {"AAA": pd.DataFrame({"Adj Close": [10.0, 11.0]}, index=idx)}
+        return downloaders.AsyncDownloadResult(frames=frames)
+
+    monkeypatch.setattr(prices, "date", FrozenDate)
+    monkeypatch.setattr(prices, "datetime", FrozenDateTime)
+    monkeypatch.setattr(prices, "full_backfill_start", lambda *_, **__: date(2021, 5, 1))
+    monkeypatch.setattr(prices, "YahooAsyncDataSource", None)
+    monkeypatch.setattr(downloaders, "download_async", fake_download)
+
+    run_threads: list[str] = []
+    original_run = asyncio.run
+
+    def tracking_run(coro):
+        run_threads.append(threading.current_thread().name)
+        return original_run(coro)
+
+    monkeypatch.setattr(prices.asyncio, "run", tracking_run)
+
+    caller_thread = threading.current_thread().name
+    df = prices.download_price_history(["AAA"], 30, matrix_mode="async", use_cache=False)
+
+    assert ("Adj Close", "AAA") in df.columns
+    assert run_threads, "asyncio.run should be invoked for async downloads"
+    assert all(name != caller_thread for name in run_threads), "asyncio.run must execute off the running loop thread"
 
 def test_async_download_result_dataframe():
     frames = {
