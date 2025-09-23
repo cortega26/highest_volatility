@@ -25,6 +25,8 @@ import pandas as pd
 import altair as alt
 import streamlit as st
 
+CACHE_BUSTER = "ticker-normalization-v2"
+
 from highest_volatility.app.cli import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MIN_DAYS,
@@ -171,8 +173,9 @@ config = AnalysisConfig(
 
 @st.cache_data(show_spinner=False)
 def _build_universe_cached(
-    top_n: int, validate: bool
+    top_n: int, validate: bool, cache_buster: str = CACHE_BUSTER
 ) -> tuple[list[str], pd.DataFrame]:
+    del cache_buster  # Ensures cache key invalidation when the token changes.
     tickers, fortune = build_universe(top_n, validate=validate)
     return tickers, fortune
 
@@ -184,7 +187,9 @@ def _download_prices_cached(
     interval: str,
     prepost: bool,
     matrix_mode: str,
+    cache_buster: str = CACHE_BUSTER,
 ) -> pd.DataFrame:
+    del cache_buster  # Ensures cache key invalidation when the token changes.
     return download_price_history(
         list(tickers),
         lookback_days,
@@ -203,7 +208,11 @@ def _ensure_analysis_requested(analysis_ready: bool) -> bool:
 
 def _load_universe(config: AnalysisConfig) -> UniverseData | None:
     with st.spinner("Building Fortune universe…"):
-        tickers, fortune = _build_universe_cached(config.top_n, config.validate_universe)
+        tickers, fortune = _build_universe_cached(
+            config.top_n,
+            config.validate_universe,
+            cache_buster=CACHE_BUSTER,
+        )
     universe = UniverseData(list(tickers), fortune)
     if universe.is_empty:
         st.warning("No tickers were returned by the universe builder.")
@@ -285,6 +294,7 @@ def _download_prices_for(universe: UniverseData, config: AnalysisConfig) -> pd.D
             config.interval,
             config.prepost,
             config.matrix_mode,
+            cache_buster=CACHE_BUSTER,
         )
 
 
