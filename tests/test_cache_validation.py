@@ -18,7 +18,7 @@ def _make_manifest(df):
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
 
@@ -39,7 +39,7 @@ def test_validate_cache_weekend_gap_allowed():
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
     validate_cache(df, manifest)
@@ -57,7 +57,7 @@ def test_validate_cache_market_holiday_gap_allowed():
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
     validate_cache(df, manifest)
@@ -76,7 +76,7 @@ def test_validate_cache_holiday_gap_allowed_without_mcal(monkeypatch):
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
 
@@ -111,7 +111,7 @@ def test_validate_cache_special_closures_without_mcal(monkeypatch, start_date, e
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
 
@@ -139,7 +139,7 @@ def test_validate_cache_gap():
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
     with pytest.raises(ValueError) as excinfo:
@@ -159,7 +159,7 @@ def test_validate_cache_intraday_extended_hours_gap_allowed():
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
 
@@ -178,7 +178,7 @@ def test_validate_cache_intraday_regular_hours_gap_detected():
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
 
@@ -221,7 +221,7 @@ def test_validate_cache_gap_detected_without_mcal(monkeypatch):
         end=str(df.index[-1].date()),
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
 
@@ -241,7 +241,7 @@ def test_validate_cache_range_mismatch():
         end="2020-01-02",
         rows=len(df),
         source="test",
-        version=1,
+        version=store.CACHE_VERSION,
         updated_at="2020-01-01T00:00:00Z",
     )
     with pytest.raises(ValueError):

@@ -12,6 +12,13 @@ are exposed via ``highest_volatility.cache`` and security sanitizers reside in
 ``src.*`` namespace have been removed, so downstream projects need to update
 their imports to the ``highest_volatility.*`` modules before upgrading.
 
+### Cache versioning
+
+The price cache manifest format is now at version ``2``. Existing
+``cache/prices`` entries created with older releases are automatically deleted
+when accessed so fresh parquet and manifest files can be regenerated without
+manual cleanup.
+
 ## Data API
 
 A lightweight FastAPI service exposes cached price data and the Fortune ticker
