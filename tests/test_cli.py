@@ -76,6 +76,24 @@ def test_download_prices_step_sanitizes(monkeypatch):
     assert result.duration >= 0
 
 
+def test_main_handles_empty_price_download(monkeypatch, capsys):
+    fortune = pd.DataFrame(
+        {"rank": [1], "company": ["A Co"], "ticker": ["A"]}
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "build_universe",
+        lambda top_n, **__: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
+    )
+    monkeypatch.setattr(cli, "download_price_history", lambda *_, **__: pd.DataFrame())
+
+    cli.main(["--top-n", "1", "--print-top", "1", "--min-days", "2"])
+
+    out = capsys.readouterr().out
+    assert "Empty DataFrame" in out
+
+
 def test_compute_metrics_step_uses_registry(monkeypatch):
     args = _make_args(metric="cc_vol", min_days=2)
     prices = pd.DataFrame({("Adj Close", "A"): [1, 2, 3]}, index=pd.date_range("2020-01-01", periods=3))

@@ -188,6 +188,9 @@ class RenderOutputResult:
 def _extract_close(prices: pd.DataFrame) -> pd.DataFrame:
     """Extract the close or adjusted close slice from raw prices."""
 
+    if prices.columns.empty:
+        return pd.DataFrame(index=prices.index)
+
     if isinstance(prices.columns, pd.MultiIndex):
         if "Adj Close" in prices.columns.get_level_values(0):
             return prices["Adj Close"]
@@ -227,6 +230,18 @@ def _download_prices_step(
         max_retries=args.max_retries,
     )
     duration = time.perf_counter() - start
+
+    if prices.empty:
+        empty_close = pd.DataFrame(index=prices.index)
+        return DownloadPricesResult(
+            prices=prices,
+            close=empty_close,
+            tickers=[],
+            dropped_short=[],
+            dropped_duplicate=[],
+            duration=duration,
+        )
+
     close = _extract_close(prices)
     close, dropped_short, dropped_dupe = sanitize_close(close, args.min_days)
 
@@ -257,13 +272,16 @@ def _compute_metrics_step(
 
     start = time.perf_counter()
     metric_func = METRIC_REGISTRY[args.metric]
-    metric_df = metric_func(
-        prices_result.prices,
-        tickers=prices_result.tickers,
-        close=prices_result.close,
-        min_periods=args.min_days,
-        interval=args.interval,
-    )
+    if prices_result.tickers:
+        metric_df = metric_func(
+            prices_result.prices,
+            tickers=prices_result.tickers,
+            close=prices_result.close,
+            min_periods=args.min_days,
+            interval=args.interval,
+        )
+    else:
+        metric_df = pd.DataFrame(columns=["ticker", args.metric])
     metric_df = metric_df.drop_duplicates(subset=["ticker"], keep="first")
     fortune = fortune.drop_duplicates(subset=["ticker"], keep="first")
     metrics = metric_df.set_index("ticker")
