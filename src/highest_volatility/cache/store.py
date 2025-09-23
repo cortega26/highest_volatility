@@ -89,9 +89,10 @@ def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Opt
         if not parquet_path.exists() or not manifest_path.exists():
             return None, None
 
-    manifest_data = json.loads(manifest_path.read_text())
-    stored_version = manifest_data.get("version", 0)
-    if stored_version < CACHE_VERSION:
+    try:
+        manifest_data = json.loads(manifest_path.read_text())
+        manifest = Manifest(**manifest_data)
+    except (json.JSONDecodeError, TypeError, ValueError):
         for path in (parquet_path, manifest_path):
             try:
                 path.unlink()
@@ -99,7 +100,13 @@ def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Opt
                 pass
         return None, None
 
-    manifest = Manifest(**manifest_data)
+    if manifest.version < CACHE_VERSION:
+        for path in (parquet_path, manifest_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        return None, None
 
     df = pd.read_parquet(parquet_path)
     if not isinstance(df.index, pd.DatetimeIndex):

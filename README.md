@@ -17,7 +17,8 @@ their imports to the ``highest_volatility.*`` modules before upgrading.
 The price cache manifest format is now at version ``2``. Existing
 ``cache/prices`` entries created with older releases are automatically deleted
 when accessed so fresh parquet and manifest files can be regenerated without
-manual cleanup.
+manual cleanup. Corrupt manifest files are also purged on load so the
+downloader can rebuild them without manual intervention.
 
 ## Data API
 
