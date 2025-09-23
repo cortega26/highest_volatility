@@ -6,6 +6,7 @@ from highest_volatility.app.ui_helpers import (
     prepare_metric_table,
     sanitize_price_matrix,
 )
+from highest_volatility.compute.metrics import metric_display_name
 
 
 @pytest.fixture
@@ -58,16 +59,17 @@ def test_prepare_metric_table_sorts_and_joins(sample_prices: pd.DataFrame) -> No
         "ticker",
         "rank",
         "company",
-        "cc_vol",
-        "ewma_vol",
-        "mad_vol",
-        "sharpe_ratio",
-        "max_drawdown",
-        "var",
-        "sortino",
+        metric_display_name("cc_vol"),
+        metric_display_name("ewma_vol"),
+        metric_display_name("mad_vol"),
+        metric_display_name("sharpe_ratio"),
+        metric_display_name("max_drawdown"),
+        metric_display_name("var"),
+        metric_display_name("sortino"),
     ]
     assert table.shape[0] == 2
-    assert table.loc[0, "cc_vol"] >= table.loc[1, "cc_vol"]
+    metric_label = metric_display_name("cc_vol")
+    assert table.loc[0, metric_label] >= table.loc[1, metric_label]
     assert table.loc[table["ticker"] == "AAA", "company"].iloc[0] == "Alpha"
 
 
@@ -125,17 +127,17 @@ def test_prepare_metric_table_additional_columns_with_ohlc() -> None:
 
     expected_columns = {
         "ticker",
-        "cc_vol",
-        "parkinson_vol",
-        "gk_vol",
-        "rs_vol",
-        "yz_vol",
-        "ewma_vol",
-        "mad_vol",
-        "sharpe_ratio",
-        "max_drawdown",
-        "var",
-        "sortino",
+        metric_display_name("cc_vol"),
+        metric_display_name("parkinson_vol"),
+        metric_display_name("gk_vol"),
+        metric_display_name("rs_vol"),
+        metric_display_name("yz_vol"),
+        metric_display_name("ewma_vol"),
+        metric_display_name("mad_vol"),
+        metric_display_name("sharpe_ratio"),
+        metric_display_name("max_drawdown"),
+        metric_display_name("var"),
+        metric_display_name("sortino"),
     }
     assert expected_columns.issubset(set(table.columns))
     assert table.shape[0] == 2

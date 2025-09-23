@@ -11,6 +11,7 @@ import pandas as pd
 from highest_volatility.compute.metrics import (
     METRIC_REGISTRY,
     additional_volatility_measures,
+    metric_display_name,
 )
 
 
@@ -209,6 +210,19 @@ def _augment_with_registered_metrics(
     return augmented
 
 
+def _rename_metric_columns(table: pd.DataFrame) -> pd.DataFrame:
+    """Rename metric columns to human-readable titles."""
+
+    rename_map = {
+        column: metric_display_name(column)
+        for column in table.columns
+        if column in METRIC_REGISTRY
+    }
+    if not rename_map:
+        return table
+    return table.rename(columns=rename_map)
+
+
 def prepare_metric_table(
     prices: pd.DataFrame,
     *,
@@ -271,7 +285,8 @@ def prepare_metric_table(
     if metric_key in table.columns:
         table = table.sort_values(metric_key, ascending=False)
 
-    return table.reset_index(drop=True)
+    table = table.reset_index(drop=True)
+    return _rename_metric_columns(table)
 
 
 __all__ = [
