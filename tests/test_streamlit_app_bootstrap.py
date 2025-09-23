@@ -116,6 +116,19 @@ class _DummyStreamlit(ModuleType):
         return decorator
 
 
+class _OptInSidebar(_DummySidebar):
+    def checkbox(self, label: str, value: bool = False, **kwargs: Any) -> bool:
+        if label == "Validate tickers via Selenium":
+            return True
+        return super().checkbox(label, value=value, **kwargs)
+
+
+class _OptInStreamlit(_DummyStreamlit):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sidebar = _OptInSidebar()
+
+
 class _DummyAltair(ModuleType):
     class Chart:  # pragma: no cover - proxy only
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -139,7 +152,7 @@ class _DummyAltair(ModuleType):
         return lambda *args, **kwargs: None
 
 
-def test_streamlit_app_bootstrap_inserts_src(monkeypatch) -> None:
+def _run_streamlit_entry(monkeypatch, streamlit_module: ModuleType) -> dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[1]
     src_path = repo_root / "src"
 
@@ -155,7 +168,7 @@ def test_streamlit_app_bootstrap_inserts_src(monkeypatch) -> None:
 
     monkeypatch.setattr(sys, "path", filtered_path, raising=False)
 
-    monkeypatch.setitem(sys.modules, "streamlit", _DummyStreamlit())
+    monkeypatch.setitem(sys.modules, "streamlit", streamlit_module)
     monkeypatch.setitem(sys.modules, "altair", _DummyAltair())
 
     cached_modules: dict[str, ModuleType] = {}
@@ -164,11 +177,35 @@ def test_streamlit_app_bootstrap_inserts_src(monkeypatch) -> None:
             cached_modules[name] = sys.modules.pop(name)
 
     try:
-        runpy.run_path(str(repo_root / "src" / "highest_volatility" / "app" / "streamlit_app.py"), run_name="__main__")
+        return runpy.run_path(
+            str(src_path / "highest_volatility" / "app" / "streamlit_app.py"),
+            run_name="__main__",
+        )
     finally:
         for name in list(sys.modules):
             if name == "highest_volatility" or name.startswith("highest_volatility."):
                 sys.modules.pop(name)
         sys.modules.update(cached_modules)
 
+
+def test_streamlit_app_bootstrap_inserts_src(monkeypatch) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    src_path = repo_root / "src"
+
+    _run_streamlit_entry(monkeypatch, _DummyStreamlit())
+
     assert sys.path[0] == str(src_path)
+
+
+def test_streamlit_app_disables_validation_by_default(monkeypatch) -> None:
+    globals_dict = _run_streamlit_entry(monkeypatch, _DummyStreamlit())
+
+    config = globals_dict["config"]
+    assert config.validate_universe is False
+
+
+def test_streamlit_app_allows_opt_in_validation(monkeypatch) -> None:
+    globals_dict = _run_streamlit_entry(monkeypatch, _OptInStreamlit())
+
+    config = globals_dict["config"]
+    assert config.validate_universe is True

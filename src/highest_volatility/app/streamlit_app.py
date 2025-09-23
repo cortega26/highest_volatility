@@ -117,8 +117,11 @@ with st.sidebar:
     )
     validate_universe = st.checkbox(
         "Validate tickers via Selenium",
-        value=True,
-        help="Disable to skip validation for faster startup (uses cached tickers when available).",
+        value=False,
+        help=(
+            "Enable to revalidate tickers via Yahoo Finance, which fetches fresh data and adds"
+            " extra startup time."
+        ),
     )
     async_fetch = st.checkbox(
         "Fetch prices asynchronously",
