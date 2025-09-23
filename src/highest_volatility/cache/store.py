@@ -13,11 +13,6 @@ from io import BytesIO
 import pandas as pd
 import requests  # type: ignore[import]
 from highest_volatility.pipeline import validate_cache
-from highest_volatility.security.validation import (
-    SanitizationError,
-    sanitize_interval,
-    sanitize_single_ticker,
-)
 
 # Default on-disk cache root. Use project-visible folder unless overridden.
 def _resolve_cache_root() -> Path:
@@ -26,8 +21,16 @@ def _resolve_cache_root() -> Path:
         return Path(env_root).expanduser()
     return Path("cache/prices")
 
-
 CACHE_ROOT = _resolve_cache_root()
+
+# Increment when cache schema/content changes invalidate on-disk data.
+CACHE_VERSION = 2
+
+
+def _security_validation():
+    from highest_volatility.security import validation as security_validation
+
+    return security_validation
 
 
 @dataclass
@@ -71,10 +74,12 @@ def _hydrate_from_api(ticker: str, interval: str) -> None:
 def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Optional[Manifest]]:
     """Load cached prices and manifest for ``ticker``/``interval``."""
 
+    security_validation = _security_validation()
+
     try:
-        ticker = sanitize_single_ticker(ticker)
-        interval = sanitize_interval(interval)
-    except SanitizationError as exc:
+        ticker = security_validation.sanitize_single_ticker(ticker)
+        interval = security_validation.sanitize_interval(interval)
+    except security_validation.SanitizationError as exc:
         raise ValueError(f"Invalid cache lookup: {exc}") from exc
 
     parquet_path, manifest_path = _paths(ticker, interval)
@@ -84,13 +89,23 @@ def load_cached(ticker: str, interval: str) -> Tuple[Optional[pd.DataFrame], Opt
         if not parquet_path.exists() or not manifest_path.exists():
             return None, None
 
+    manifest_data = json.loads(manifest_path.read_text())
+    stored_version = manifest_data.get("version", 0)
+    if stored_version < CACHE_VERSION:
+        for path in (parquet_path, manifest_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        return None, None
+
+    manifest = Manifest(**manifest_data)
+
     df = pd.read_parquet(parquet_path)
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
     df = df.sort_index()
 
-    manifest_data = json.loads(manifest_path.read_text())
-    manifest = Manifest(**manifest_data)
     return df, manifest
 
 
@@ -108,10 +123,12 @@ def save_cache(
     if df.empty:
         raise ValueError("Cannot cache empty DataFrame")
 
+    security_validation = _security_validation()
+
     try:
-        ticker = sanitize_single_ticker(ticker)
-        interval = sanitize_interval(interval)
-    except SanitizationError as exc:
+        ticker = security_validation.sanitize_single_ticker(ticker)
+        interval = security_validation.sanitize_interval(interval)
+    except security_validation.SanitizationError as exc:
         raise ValueError(f"Invalid cache write: {exc}") from exc
 
     df = df.sort_index()
@@ -122,7 +139,7 @@ def save_cache(
         end=str(df.index[-1].date()),
         rows=len(df),
         source=source,
-        version=1,
+        version=CACHE_VERSION,
         updated_at=
         datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     )
@@ -140,5 +157,3 @@ def save_cache(
     tmp_manifest.write_text(json.dumps(asdict(manifest)))
     tmp_manifest.replace(manifest_path)
     return manifest
-
-
