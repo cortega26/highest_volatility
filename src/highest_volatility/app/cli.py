@@ -17,6 +17,7 @@ from highest_volatility.compute.metrics import (
     metric_display_name,
 )
 from highest_volatility.ingest.prices import download_price_history
+from highest_volatility.ingest.tickers import normalize_ticker
 from highest_volatility.storage.csv_store import save_csv
 from highest_volatility.storage.sqlite_store import save_sqlite
 from highest_volatility.universe import build_universe
@@ -119,7 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-csv", type=Path, help="Optional path to write the full results as CSV"
     )
     parser.add_argument(
-        "--output-sqlite", type=Path, help="Optional path to write the full results to SQLite"
+        "--output-sqlite",
+        type=Path,
+        help="Optional path to write the full results to SQLite",
     )
     parser.add_argument(
         "--use-cache",
@@ -299,7 +302,9 @@ def _compute_metrics_step(
     metric_df = metric_df.drop_duplicates(subset=["ticker"], keep="first")
     fortune = fortune.drop_duplicates(subset=["ticker"], keep="first")
     metrics = metric_df.set_index("ticker")
-    metrics = metrics.dropna(subset=[args.metric]).sort_values(args.metric, ascending=False)
+    metrics = metrics.dropna(subset=[args.metric]).sort_values(
+        args.metric, ascending=False
+    )
     result = metrics.join(fortune.set_index("ticker")["company"]).join(
         fortune.set_index("ticker")["rank"]
     )
@@ -339,7 +344,9 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     if args.tickers:
         print("[1/4] Using provided tickers…", flush=True)
-        normalized_tickers = list(dict.fromkeys(ticker.upper() for ticker in args.tickers))
+        normalized_tickers = list(
+            dict.fromkeys(normalize_ticker(ticker) for ticker in args.tickers)
+        )
         fortune = pd.DataFrame(
             {
                 "ticker": normalized_tickers,
