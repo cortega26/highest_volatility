@@ -49,6 +49,23 @@ def test_load_cached_removes_outdated_manifest(tmp_path, monkeypatch):
     assert not manifest_path.exists()
 
 
+def test_load_cached_purges_corrupt_manifest(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "CACHE_ROOT", tmp_path)
+    df = make_df()
+    store.save_cache("BROKEN", "1d", df, "test")
+
+    parquet_path = tmp_path / "1d" / "BROKEN.parquet"
+    manifest_path = tmp_path / "1d" / "BROKEN.json"
+    manifest_path.write_text("{\n")
+
+    cached_df, manifest = store.load_cached("BROKEN", "1d")
+
+    assert cached_df is None
+    assert manifest is None
+    assert not parquet_path.exists()
+    assert not manifest_path.exists()
+
+
 def test_cache_root_env_override(monkeypatch, tmp_path):
     target = tmp_path / "custom-cache"
     monkeypatch.setenv("HV_CACHE_ROOT", str(target))
