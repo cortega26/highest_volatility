@@ -12,7 +12,10 @@ from highest_volatility.app import cli
 def _mock_data():
     idx = pd.date_range("2020-01-01", periods=4)
     prices = pd.DataFrame(
-        {("Adj Close", "A"): [100, 110, 105, 120], ("Adj Close", "B"): [100, 90, 80, 70]},
+        {
+            ("Adj Close", "A"): [100, 110, 105, 120],
+            ("Adj Close", "B"): [100, 90, 80, 70],
+        },
         index=idx,
     )
     fortune = pd.DataFrame(
@@ -77,14 +80,15 @@ def test_download_prices_step_sanitizes(monkeypatch):
 
 
 def test_main_handles_empty_price_download(monkeypatch, capsys):
-    fortune = pd.DataFrame(
-        {"rank": [1], "company": ["A Co"], "ticker": ["A"]}
-    )
+    fortune = pd.DataFrame({"rank": [1], "company": ["A Co"], "ticker": ["A"]})
 
     monkeypatch.setattr(
         cli,
         "build_universe",
-        lambda top_n, **__: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
+        lambda top_n, **__: (
+            fortune["ticker"].head(top_n).tolist(),
+            fortune.head(top_n),
+        ),
     )
     monkeypatch.setattr(cli, "download_price_history", lambda *_, **__: pd.DataFrame())
 
@@ -96,7 +100,9 @@ def test_main_handles_empty_price_download(monkeypatch, capsys):
 
 def test_compute_metrics_step_uses_registry(monkeypatch):
     args = _make_args(metric="cc_vol", min_days=2)
-    prices = pd.DataFrame({("Adj Close", "A"): [1, 2, 3]}, index=pd.date_range("2020-01-01", periods=3))
+    prices = pd.DataFrame(
+        {("Adj Close", "A"): [1, 2, 3]}, index=pd.date_range("2020-01-01", periods=3)
+    )
     close = prices["Adj Close"]
     download_result = cli.DownloadPricesResult(
         prices=prices,
@@ -124,7 +130,9 @@ def test_render_output_step_exports(monkeypatch, tmp_path, capsys):
     df = pd.DataFrame({"rank": [1], "company": ["A"], "cc_vol": [0.1]}, index=["A"])
     compute_result = cli.ComputeMetricsResult(result=df, duration=0.0)
 
-    monkeypatch.setattr(cli, "save_sqlite", lambda *_, **__: pytest.fail("should not be called"))
+    monkeypatch.setattr(
+        cli, "save_sqlite", lambda *_, **__: pytest.fail("should not be called")
+    )
 
     result = cli._render_output_step(args, compute_result)
 
@@ -140,7 +148,10 @@ def test_cli_rank_by_sharpe_ratio(monkeypatch, capsys):
     monkeypatch.setattr(
         cli,
         "build_universe",
-        lambda top_n, **__: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
+        lambda top_n, **__: (
+            fortune["ticker"].head(top_n).tolist(),
+            fortune.head(top_n),
+        ),
     )
     monkeypatch.setattr(
         cli,
@@ -148,16 +159,18 @@ def test_cli_rank_by_sharpe_ratio(monkeypatch, capsys):
         lambda tickers, lookback_days, interval="1d", prepost=False, **_: prices,
     )
 
-    cli.main([
-        "--metric",
-        "sharpe_ratio",
-        "--top-n",
-        "2",
-        "--print-top",
-        "2",
-        "--min-days",
-        "2",
-    ])
+    cli.main(
+        [
+            "--metric",
+            "sharpe_ratio",
+            "--top-n",
+            "2",
+            "--print-top",
+            "2",
+            "--min-days",
+            "2",
+        ]
+    )
     out = capsys.readouterr().out.strip().splitlines()
     data_lines = [ln for ln in out if re.match(r"^[A-Z]", ln)]
     assert data_lines[0].startswith("A")
@@ -169,7 +182,10 @@ def test_cli_rank_by_max_drawdown(monkeypatch, capsys):
     monkeypatch.setattr(
         cli,
         "build_universe",
-        lambda top_n, **__: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
+        lambda top_n, **__: (
+            fortune["ticker"].head(top_n).tolist(),
+            fortune.head(top_n),
+        ),
     )
     monkeypatch.setattr(
         cli,
@@ -177,16 +193,18 @@ def test_cli_rank_by_max_drawdown(monkeypatch, capsys):
         lambda tickers, lookback_days, interval="1d", prepost=False, **_: prices,
     )
 
-    cli.main([
-        "--metric",
-        "max_drawdown",
-        "--top-n",
-        "2",
-        "--print-top",
-        "2",
-        "--min-days",
-        "2",
-    ])
+    cli.main(
+        [
+            "--metric",
+            "max_drawdown",
+            "--top-n",
+            "2",
+            "--print-top",
+            "2",
+            "--min-days",
+            "2",
+        ]
+    )
     out = capsys.readouterr().out.strip().splitlines()
     data_lines = [ln for ln in out if re.match(r"^[A-Z]", ln)]
     assert data_lines[0].startswith("A")
@@ -203,21 +221,26 @@ def test_cli_async_flag(monkeypatch):
     monkeypatch.setattr(
         cli,
         "build_universe",
-        lambda top_n, **__: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
+        lambda top_n, **__: (
+            fortune["ticker"].head(top_n).tolist(),
+            fortune.head(top_n),
+        ),
     )
     monkeypatch.setattr(cli, "download_price_history", _mock_download)
 
-    cli.main([
-        "--metric",
-        "sharpe_ratio",
-        "--top-n",
-        "2",
-        "--print-top",
-        "2",
-        "--min-days",
-        "2",
-        "--async-fetch",
-    ])
+    cli.main(
+        [
+            "--metric",
+            "sharpe_ratio",
+            "--top-n",
+            "2",
+            "--print-top",
+            "2",
+            "--min-days",
+            "2",
+            "--async-fetch",
+        ]
+    )
     assert called.get("matrix_mode") == "async"
 
 
@@ -232,21 +255,50 @@ def test_cli_passes_max_retries(monkeypatch):
     monkeypatch.setattr(
         cli,
         "build_universe",
-        lambda top_n, **__: (fortune["ticker"].head(top_n).tolist(), fortune.head(top_n)),
+        lambda top_n, **__: (
+            fortune["ticker"].head(top_n).tolist(),
+            fortune.head(top_n),
+        ),
     )
     monkeypatch.setattr(cli, "download_price_history", _mock_download)
 
-    cli.main([
-        "--metric",
-        "sharpe_ratio",
-        "--top-n",
-        "2",
-        "--print-top",
-        "2",
-        "--min-days",
-        "2",
-        "--max-retries",
-        "7",
-    ])
+    cli.main(
+        [
+            "--metric",
+            "sharpe_ratio",
+            "--top-n",
+            "2",
+            "--print-top",
+            "2",
+            "--min-days",
+            "2",
+            "--max-retries",
+            "7",
+        ]
+    )
     assert called.get("max_retries") == 7
 
+
+def test_cli_manual_tickers_normalize(monkeypatch, capsys):
+    idx = pd.date_range("2020-01-01", periods=3)
+    prices = pd.DataFrame({("Adj Close", "BRK-A"): [100, 101, 102]}, index=idx)
+    captured: dict[str, list[str]] = {}
+
+    def _mock_download(tickers, *args, **kwargs):
+        captured["tickers"] = list(tickers)
+        return prices
+
+    def _identity_sanitize(close, min_days):
+        return close, [], []
+
+    def _fake_metric(*_, tickers, **__):
+        return pd.DataFrame({"ticker": tickers, "cc_vol": [0.0 for _ in tickers]})
+
+    monkeypatch.setattr(cli, "download_price_history", _mock_download)
+    monkeypatch.setattr(cli, "sanitize_close", _identity_sanitize)
+    monkeypatch.setitem(cli.METRIC_REGISTRY, "cc_vol", _fake_metric)
+
+    cli.main(["--tickers", "BRK.A", "--print-top", "1", "--min-days", "1"])
+    capsys.readouterr()
+
+    assert captured.get("tickers") == ["BRK-A"]

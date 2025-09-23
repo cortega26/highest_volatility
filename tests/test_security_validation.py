@@ -2,7 +2,11 @@
 
 import pytest
 
-from highest_volatility.security.validation import SanitizationError, sanitize_interval
+from highest_volatility.security.validation import (
+    SanitizationError,
+    sanitize_interval,
+    sanitize_multiple_tickers,
+)
 
 
 @pytest.mark.parametrize(
@@ -25,3 +29,9 @@ def test_sanitize_interval_rejects_invalid_suffixes(raw: str) -> None:
 
     with pytest.raises(SanitizationError):
         sanitize_interval(raw)
+
+
+def test_sanitize_multiple_tickers_normalizes_dotted_symbols() -> None:
+    """Multiple ticker sanitization should normalize dotted tickers."""
+
+    assert sanitize_multiple_tickers("brk.a") == ["BRK-A"]
