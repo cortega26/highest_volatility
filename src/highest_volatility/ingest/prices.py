@@ -7,6 +7,7 @@ from typing import Dict, List
 from contextlib import contextmanager
 import logging
 import asyncio
+import concurrent.futures
 
 import pandas as pd
 import yfinance as yf
@@ -116,7 +117,18 @@ def download_price_history(
             max_workers=max_workers,
             datasource_factory=_datasource_factory,
         )
-        async_result = asyncio.run(downloaders.download_async(async_request))
+        async def _invoke() -> downloaders.AsyncDownloadResult:
+            return await downloaders.download_async(async_request)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            async_result = asyncio.run(_invoke())
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(lambda: asyncio.run(_invoke()))
+                async_result = future.result()
+
         return async_result.to_dataframe(trim_start=start_dt)
 
     can_use_cache = (
