@@ -1,4 +1,11 @@
-"""Streamlit application entry point for Highest Volatility."""
+"""Streamlit application entry point for Highest Volatility.
+
+The app maintains an "analysis ready" flag in ``st.session_state`` so that
+display-only interactions (such as adjusting chart selections) do not
+invalidate previously downloaded data. The flag is cleared whenever the
+sidebar configuration changes and is set again when users press
+**Run analysis**.
+"""
 
 from __future__ import annotations
 
@@ -15,9 +22,8 @@ if not __package__:
     sys.path.insert(0, str(project_src))
 
 import pandas as pd
-import streamlit as st
-
 import altair as alt
+import streamlit as st
 
 from highest_volatility.app.cli import (
     DEFAULT_LOOKBACK_DAYS,
@@ -26,6 +32,7 @@ from highest_volatility.app.cli import (
     INTERVAL_CHOICES,
     METRIC_CHOICES,
 )
+from highest_volatility.app.analysis_state import update_analysis_ready_flag
 from highest_volatility.app.ui_helpers import (
     SanitizedPrices,
     prepare_metric_table,
@@ -58,6 +65,20 @@ class AnalysisConfig:
         """Return the price download mode based on async preference."""
 
         return "async" if self.async_fetch else "batch"
+
+    def signature(self) -> tuple[object, ...]:
+        """Return a hashable representation used for session comparisons."""
+
+        return (
+            self.top_n,
+            self.lookback_days,
+            self.interval,
+            self.metric_key,
+            self.min_days,
+            self.prepost,
+            self.validate_universe,
+            self.async_fetch,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,8 +194,8 @@ def _download_prices_cached(
     )
 
 
-def _ensure_analysis_requested(run_requested: bool) -> bool:
-    if run_requested:
+def _ensure_analysis_requested(analysis_ready: bool) -> bool:
+    if analysis_ready:
         return True
     st.info("Adjust the configuration and click **Run analysis** to fetch data.")
     return False
@@ -406,8 +427,8 @@ def _render_visualisations(close_only: pd.DataFrame, selected_tickers: list[str]
         _render_rolling_volatility(close_only, selected_tickers)
 
 
-def _render(config: AnalysisConfig, run_requested: bool) -> None:
-    if not _ensure_analysis_requested(run_requested):
+def _render(config: AnalysisConfig, analysis_ready: bool) -> None:
+    if not _ensure_analysis_requested(analysis_ready):
         return
 
     universe = _load_universe(config)
@@ -442,4 +463,11 @@ def _render(config: AnalysisConfig, run_requested: bool) -> None:
     _render_visualisations(sanitized.close_only, selected_tickers)
 
 
-_render(config, run_analysis)
+analysis_ready = update_analysis_ready_flag(
+    st.session_state,
+    config.signature(),
+    run_analysis,
+)
+
+
+_render(config, analysis_ready)
