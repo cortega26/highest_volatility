@@ -194,6 +194,44 @@ def _escape_spreadsheet_formula(value: object) -> object:
     return value
 
 
+def _normalise_hex_color(value: str | None) -> str | None:
+    """Return a normalised 6-digit hex colour (without leading '#')."""
+
+    if not value:
+        return None
+    colour = value.strip().lstrip("#")
+    if len(colour) == 3:
+        colour = "".join(component * 2 for component in colour)
+    if len(colour) != 6:
+        return None
+    try:
+        int(colour, 16)
+    except ValueError:
+        return None
+    return colour.lower()
+
+
+def _resolve_highlight_css(get_option=None) -> str:
+    """Build a theme-aware CSS snippet for highlighted table rows."""
+
+    option_getter = get_option or st.get_option
+    theme_base = (option_getter("theme.base") or "light").lower()
+    primary = _normalise_hex_color(option_getter("theme.primaryColor"))
+    text_colour_option = option_getter("theme.textColor")
+    default_text_colour = "#262730" if theme_base == "light" else "#FAFAFA"
+    text_colour = text_colour_option or default_text_colour
+
+    if primary is None:
+        background_colour = "#f0f4c3" if theme_base == "light" else "#2c2c2c"
+        return f"background-color: {background_colour}; color: {text_colour};"
+
+    red = int(primary[0:2], 16)
+    green = int(primary[2:4], 16)
+    blue = int(primary[4:6], 16)
+    alpha = 0.18 if theme_base == "light" else 0.45
+    return f"background-color: rgba({red}, {green}, {blue}, {alpha}); color: {text_colour};"
+
+
 def _render_universe_section(universe: UniverseData) -> None:
     view = universe.fortune_view()
     if view.empty:
@@ -258,8 +296,9 @@ def _render_metric_table(table: pd.DataFrame, metric_key: str) -> None:
     metric_label = metric_key.replace("_", " ").title()
     st.subheader(f"Top tickers by {metric_label}")
     highlight_n = min(10, len(table))
+    highlight_css = _resolve_highlight_css()
     styled_table = table.style.apply(
-        lambda row: ["background-color: #fff3cd" if row.name < highlight_n else "" for _ in row],
+        lambda row: [highlight_css if row.name < highlight_n else "" for _ in row],
         axis=1,
     )
     st.dataframe(styled_table, use_container_width=True)
