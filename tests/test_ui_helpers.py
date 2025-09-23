@@ -54,7 +54,18 @@ def test_prepare_metric_table_sorts_and_joins(sample_prices: pd.DataFrame) -> No
         close_prices=result.close_only,
     )
 
-    assert list(table.columns) == ["ticker", "rank", "company", "cc_vol"]
+    assert list(table.columns) == [
+        "ticker",
+        "rank",
+        "company",
+        "cc_vol",
+        "ewma_vol",
+        "mad_vol",
+        "sharpe_ratio",
+        "max_drawdown",
+        "var",
+        "sortino",
+    ]
     assert table.shape[0] == 2
     assert table.loc[0, "cc_vol"] >= table.loc[1, "cc_vol"]
     assert table.loc[table["ticker"] == "AAA", "company"].iloc[0] == "Alpha"
@@ -82,6 +93,52 @@ def test_prepare_metric_table_unknown_metric(sample_prices: pd.DataFrame) -> Non
             tickers=["AAA"],
             fortune=None,
         )
+
+
+def test_prepare_metric_table_additional_columns_with_ohlc() -> None:
+    idx = pd.date_range("2022-01-01", periods=6, freq="D")
+    data = {
+        ("Open", "AAA"): [100, 101, 102, 103, 104, 105],
+        ("High", "AAA"): [101, 102, 103, 104, 105, 106],
+        ("Low", "AAA"): [99, 100, 101, 102, 103, 104],
+        ("Close", "AAA"): [100.5, 101.5, 102.5, 103.5, 104.5, 105.5],
+        ("Adj Close", "AAA"): [100.5, 101.5, 102.5, 103.5, 104.5, 105.5],
+        ("Open", "BBB"): [50, 51, 52, 53, 54, 55],
+        ("High", "BBB"): [51, 52, 53, 54, 55, 56],
+        ("Low", "BBB"): [49, 50, 51, 52, 53, 54],
+        ("Close", "BBB"): [50.5, 51.5, 52.5, 53.5, 54.5, 55.5],
+        ("Adj Close", "BBB"): [50.5, 51.5, 52.5, 53.5, 54.5, 55.5],
+    }
+    prices = pd.DataFrame(data, index=idx)
+
+    sanitized = sanitize_price_matrix(prices, min_days=4, tickers=["AAA", "BBB"])
+
+    table = prepare_metric_table(
+        sanitized.filtered,
+        metric_key="cc_vol",
+        min_days=4,
+        interval="1d",
+        tickers=sanitized.available_tickers,
+        fortune=None,
+        close_prices=sanitized.close_only,
+    )
+
+    expected_columns = {
+        "ticker",
+        "cc_vol",
+        "parkinson_vol",
+        "gk_vol",
+        "rs_vol",
+        "yz_vol",
+        "ewma_vol",
+        "mad_vol",
+        "sharpe_ratio",
+        "max_drawdown",
+        "var",
+        "sortino",
+    }
+    assert expected_columns.issubset(set(table.columns))
+    assert table.shape[0] == 2
 
 
 def test_sanitized_prices_summarize_drops() -> None:

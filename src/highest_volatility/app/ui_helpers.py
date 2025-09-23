@@ -8,7 +8,10 @@ from typing import Sequence
 
 import pandas as pd
 
-from highest_volatility.compute.metrics import METRIC_REGISTRY
+from highest_volatility.compute.metrics import (
+    METRIC_REGISTRY,
+    additional_volatility_measures,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +134,81 @@ def sanitize_price_matrix(
     return SanitizedPrices(filtered, working, dropped_short, dropped_duplicate, dropped_empty)
 
 
+def _join_metric_columns(base: pd.DataFrame, frame: pd.DataFrame) -> pd.DataFrame:
+    """Join metric columns from ``frame`` onto ``base`` using the ticker index."""
+
+    if frame is None or frame.empty or "ticker" not in frame.columns:
+        return base
+
+    cleaned = frame.drop_duplicates(subset=["ticker"], keep="first")
+    if cleaned.empty:
+        return base
+
+    joined = cleaned.set_index("ticker")
+    new_columns = [col for col in joined.columns if col not in base.columns]
+    if not new_columns:
+        return base
+
+    return base.join(joined[new_columns], how="left")
+
+
+def _augment_with_registered_metrics(
+    table: pd.DataFrame,
+    *,
+    prices: pd.DataFrame,
+    close_prices: pd.DataFrame,
+    tickers: Sequence[str],
+    min_days: int,
+    interval: str,
+    metric_key: str,
+) -> pd.DataFrame:
+    """Augment ``table`` with additional metrics sourced from the registry."""
+
+    if not len(tickers):
+        return table
+
+    augmented = table
+
+    try:
+        extra = additional_volatility_measures(
+            prices,
+            list(tickers),
+            min_periods=min_days,
+            interval=interval,
+        )
+    except Exception:  # pragma: no cover - best-effort enrichment
+        extra = pd.DataFrame()
+
+    augmented = _join_metric_columns(augmented, extra)
+
+    base_kwargs = {
+        "prices": prices,
+        "tickers": list(tickers),
+        "min_periods": min_days,
+        "interval": interval,
+    }
+    kwargs_with_close = {**base_kwargs, "close": close_prices}
+
+    for key, func in METRIC_REGISTRY.items():
+        if key == metric_key or key in augmented.columns:
+            continue
+
+        result: pd.DataFrame | None = None
+        try:
+            result = func(**kwargs_with_close)
+        except TypeError:
+            try:
+                result = func(**base_kwargs)
+            except Exception:  # pragma: no cover - ignore broken metrics
+                result = None
+        except Exception:  # pragma: no cover - ignore broken metrics
+            result = None
+
+        augmented = _join_metric_columns(augmented, result if isinstance(result, pd.DataFrame) else pd.DataFrame())
+
+    return augmented
+
+
 def prepare_metric_table(
     prices: pd.DataFrame,
     *,
@@ -177,6 +255,17 @@ def prepare_metric_table(
                 cols.append(name)
         if cols:
             table = fortune_clean[cols].join(table, how="inner")
+
+    if close_prices is not None and not close_prices.empty:
+        table = _augment_with_registered_metrics(
+            table,
+            prices=prices,
+            close_prices=close_prices,
+            tickers=tickers,
+            min_days=min_days,
+            interval=interval,
+            metric_key=metric_key,
+        )
 
     table = table.reset_index()
     if metric_key in table.columns:
