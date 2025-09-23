@@ -535,11 +535,36 @@ def additional_volatility_measures(
 # column named after the metric.
 METRIC_REGISTRY: Dict[str, Callable[..., pd.DataFrame]] = {}
 
+# Human-readable titles for built-in metrics.  Plugins fall back to a title-cased
+# version of their key when not present in this mapping.
+METRIC_DISPLAY_NAMES: Dict[str, str] = {
+    "cc_vol": "Close-to-Close Volatility",
+    "parkinson_vol": "Parkinson Volatility",
+    "gk_vol": "Garman-Klass Volatility",
+    "rs_vol": "Rogers-Satchell Volatility",
+    "yz_vol": "Yang-Zhang Volatility",
+    "ewma_vol": "EWMA Volatility",
+    "mad_vol": "Median Absolute Deviation Volatility",
+    "sharpe_ratio": "Sharpe Ratio",
+    "max_drawdown": "Maximum Drawdown",
+    "var": "Value at Risk",
+    "sortino": "Sortino Ratio",
+}
+
 
 def register_metric(name: str, func: Callable[..., pd.DataFrame]) -> None:
     """Register ``func`` under ``name`` in the metric registry."""
 
     METRIC_REGISTRY[name] = func
+
+
+def metric_display_name(metric_key: str) -> str:
+    """Return a human-readable title for ``metric_key``."""
+
+    normalized = metric_key.strip()
+    if not normalized:
+        return metric_key
+    return METRIC_DISPLAY_NAMES.get(normalized, normalized.replace("_", " ").title())
 
 
 def _extract_close(prices: pd.DataFrame) -> pd.DataFrame:

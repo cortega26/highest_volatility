@@ -91,17 +91,17 @@ from this API when the ``HV_API_BASE_URL`` environment variable is set.
 The command line interface exposes a number of built-in metrics that can be
 selected with the ``--metric`` option:
 
-- ``cc_vol`` – close-to-close annualised volatility
-- ``parkinson_vol`` – Parkinson's high-low estimator
-- ``gk_vol`` – Garman–Klass volatility
-- ``rs_vol`` – Rogers–Satchell volatility
-- ``yz_vol`` – Yang–Zhang volatility
-- ``ewma_vol`` – exponentially weighted moving average volatility
-- ``mad_vol`` – median absolute deviation volatility
-- ``sharpe_ratio`` – annualised Sharpe ratio
-- ``max_drawdown`` – maximum drawdown
-- ``var`` – value at risk (VaR)
-- ``sortino`` – annualised Sortino ratio
+- **Close-to-Close Volatility** (``cc_vol``) – annualised close-to-close volatility
+- **Parkinson Volatility** (``parkinson_vol``) – Parkinson's high-low estimator
+- **Garman-Klass Volatility** (``gk_vol``) – Garman–Klass volatility
+- **Rogers-Satchell Volatility** (``rs_vol``) – Rogers–Satchell volatility
+- **Yang-Zhang Volatility** (``yz_vol``) – Yang–Zhang volatility
+- **EWMA Volatility** (``ewma_vol``) – exponentially weighted moving average volatility
+- **Median Absolute Deviation Volatility** (``mad_vol``) – median absolute deviation volatility
+- **Sharpe Ratio** (``sharpe_ratio``) – annualised Sharpe ratio
+- **Maximum Drawdown** (``max_drawdown``) – maximum drawdown
+- **Value at Risk** (``var``) – value at risk (VaR)
+- **Sortino Ratio** (``sortino``) – annualised Sortino ratio
 
 ### Supplying explicit tickers
 

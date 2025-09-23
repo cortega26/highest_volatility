@@ -11,7 +11,11 @@ from typing import List, Optional
 import pandas as pd
 
 from highest_volatility.app.sanitization import sanitize_close
-from highest_volatility.compute.metrics import METRIC_REGISTRY, load_plugins
+from highest_volatility.compute.metrics import (
+    METRIC_REGISTRY,
+    load_plugins,
+    metric_display_name,
+)
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.storage.csv_store import save_csv
 from highest_volatility.storage.sqlite_store import save_sqlite
@@ -26,6 +30,19 @@ INTERVAL_CHOICES = ["1d", "1h", "30m", "15m", "5m", "1m"]
 # Load any third-party metric plugins before building choices
 load_plugins()
 METRIC_CHOICES = sorted(METRIC_REGISTRY.keys())
+
+_METRIC_HELP_EXAMPLES = ["cc_vol", "parkinson_vol", "max_drawdown"]
+
+
+def _format_metric_examples() -> str:
+    examples = [
+        f"{key} ({metric_display_name(key)})"
+        for key in _METRIC_HELP_EXAMPLES
+        if key in METRIC_REGISTRY
+    ]
+    if examples:
+        return ", ".join(examples)
+    return ", ".join(METRIC_CHOICES[:3])
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,10 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--metric",
         choices=METRIC_CHOICES,
         default="cc_vol",
-        help=(
-            "Metric to rank by (e.g. cc_vol, sharpe_ratio, max_drawdown, "
-            "var, sortino)"
-        ),
+        help=f"Metric to rank by (e.g. {_format_metric_examples()})",
     )
     parser.add_argument(
         "--prepost",

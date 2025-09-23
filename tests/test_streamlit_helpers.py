@@ -9,6 +9,8 @@ from typing import Any, Iterable, Iterator, MutableMapping
 import pandas as pd
 import pytest
 
+from highest_volatility.compute.metrics import metric_display_name
+
 MODULE_NAME = "highest_volatility.app.ui_helpers"
 
 
@@ -103,8 +105,9 @@ def test_prepare_metric_table_sorts_by_metric(
         fortune=fortune,
     )
 
-    assert list(table.columns) == ["ticker", "rank", "company", metric_key]
+    label = metric_display_name(metric_key)
+    assert list(table.columns) == ["ticker", "rank", "company", label]
 
     expected_pairs = sorted(zip(value_list, tickers), reverse=True)
-    assert table[metric_key].tolist() == [value for value, _ in expected_pairs]
+    assert table[label].tolist() == [value for value, _ in expected_pairs]
     assert table["ticker"].tolist() == [ticker for _, ticker in expected_pairs]

@@ -31,7 +31,11 @@ from highest_volatility.app.ui_helpers import (
     prepare_metric_table,
     sanitize_price_matrix,
 )
-from highest_volatility.compute.metrics import max_drawdown, rolling_volatility
+from highest_volatility.compute.metrics import (
+    max_drawdown,
+    metric_display_name,
+    rolling_volatility,
+)
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.universe import build_universe
 
@@ -102,7 +106,9 @@ with st.sidebar:
         step=5,
     )
     interval = st.selectbox("Interval", INTERVAL_CHOICES, index=0)
-    metric_key = st.selectbox("Metric", METRIC_CHOICES, index=0)
+    metric_key = st.selectbox(
+        "Metric", METRIC_CHOICES, index=0, format_func=metric_display_name
+    )
     min_days = st.number_input(
         "Minimum observations per ticker",
         min_value=10,
@@ -296,7 +302,7 @@ def _compute_metric_table(
 
 
 def _render_metric_table(table: pd.DataFrame, metric_key: str) -> None:
-    metric_label = metric_key.replace("_", " ").title()
+    metric_label = metric_display_name(metric_key)
     st.subheader(f"Top tickers by {metric_label}")
     highlight_n = min(10, len(table))
     highlight_css = _resolve_highlight_css()

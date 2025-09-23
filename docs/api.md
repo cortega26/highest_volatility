@@ -130,7 +130,7 @@ Compute ranking metrics for the requested tickers.
 | Name           | Type    | Default (`HV_` override) | Description |
 | -------------- | ------- | ------------------------ | ----------- |
 | `tickers`      | string  | _required_               | Comma-separated tickers; same validation as `/prices`.
-| `metric`       | string  | `Settings.metric` (`HV_METRIC`, default `"cc_vol"`) | Metric key registered in `METRIC_REGISTRY`.
+| `metric`       | string  | `Settings.metric` (`HV_METRIC`, default `"cc_vol"` – Close-to-Close Volatility) | Metric key registered in `METRIC_REGISTRY`.
 | `lookback_days`| int     | `Settings.lookback_days` (`HV_LOOKBACK_DAYS`) | Rolling window used for data downloads.
 | `interval`     | string  | `Settings.interval` (`HV_INTERVAL`) | Yahoo Finance interval.
 | `min_days`     | int     | `Settings.min_days` (`HV_MIN_DAYS`, default `126`) | Minimum observations needed per ticker. Must satisfy `10 ≤ min_days ≤ lookback_days`.
@@ -203,7 +203,7 @@ override defaults:
 | `HV_INTERVAL`                | `"1d"`               | Default Yahoo Finance interval used during downloads.
 | `HV_PREPOST`                 | `false`              | Include pre/post-market candles in price fetches.
 | `HV_TOP_N`                   | `100`                | Default Fortune rank limit for `/universe`.
-| `HV_METRIC`                  | `"cc_vol"`          | Default metric key when `/metrics` omits `metric`.
+| `HV_METRIC`                  | `"cc_vol"`          | Default metric key (Close-to-Close Volatility) when `/metrics` omits `metric`.
 | `HV_MIN_DAYS`                | `126`                | Minimum observations for metric calculations (bounds: 10–lookback).
 | `HV_REDIS_URL`               | `redis://localhost:6379/0` | Connection string for the Redis cache backend used by FastAPI Cache.
 | `HV_CACHE_TTL_UNIVERSE`      | `60`                 | Cache TTL (seconds) for `/universe` responses.
