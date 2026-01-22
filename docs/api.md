@@ -212,7 +212,7 @@ override defaults:
 | `HV_CACHE_TTL_METRICS`       | `60`                 | Cache TTL (seconds) for `/metrics` responses.
 | `HV_RATE_LIMIT`              | `"60/minute"`       | Default SlowAPI rate-limit applied per client.
 | `HV_CACHE_REFRESH_INTERVAL`  | `86400`              | Delay (seconds) between background cache refresh runs.
-| `HV_ANNOTATIONS_DB`          | `cache/annotations.db` | SQLite path for persisted annotation notes.
+| `HV_ANNOTATIONS_DB`          | `cache/annotations.db` | SQLite path for persisted annotation notes (legacy: `HV_ANNOTATIONS_DB_PATH`).
 
 Redis must be reachable at `HV_REDIS_URL` during startup so that
 `FastAPICache.init` succeeds.  When deploying in containerised environments

@@ -31,7 +31,7 @@ from fastapi_cache.decorator import cache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -92,7 +92,10 @@ class Settings(BaseSettings):
     cache_ttl_metrics: int = 60
     rate_limit: str = "60/minute"
     cache_refresh_interval: float = 60 * 60 * 24
-    annotations_db_path: str = "cache/annotations.db"
+    annotations_db_path: str = Field(
+        "cache/annotations.db",
+        validation_alias=AliasChoices("ANNOTATIONS_DB", "ANNOTATIONS_DB_PATH"),
+    )
 
     class Config:
         env_prefix = "HV_"

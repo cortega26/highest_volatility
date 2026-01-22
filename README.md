@@ -173,7 +173,7 @@ loads the cached ticker universe, lets you annotate symbols, and synchronises
 queued updates once connectivity is restored.
 
 Annotation notes are persisted to a local SQLite file configured via
-``HV_ANNOTATIONS_DB`` (defaults to ``cache/annotations.db``).
+``HV_ANNOTATIONS_DB`` (defaults to ``cache/annotations.db``; legacy alias: ``HV_ANNOTATIONS_DB_PATH``).
 
 ### Running locally
 
