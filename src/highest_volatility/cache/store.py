@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Iterable, Optional, Tuple
 import json
 import os
-from io import BytesIO
 
 import pandas as pd
 import requests  # type: ignore[import]
@@ -50,6 +49,43 @@ def _paths(ticker: str, interval: str) -> Tuple[Path, Path]:
     return base / f"{ticker}.parquet", base / f"{ticker}.json"
 
 
+def _frame_from_split_payload(payload: object) -> pd.DataFrame:
+    if not isinstance(payload, dict):
+        return pd.DataFrame()
+    data = payload.get("data")
+    if not data:
+        return pd.DataFrame()
+    columns = payload.get("columns", [])
+    index = payload.get("index", [])
+    if not isinstance(columns, list) or not isinstance(index, list):
+        return pd.DataFrame()
+    if columns and isinstance(columns[0], (list, tuple)):
+        columns = pd.MultiIndex.from_tuples([tuple(col) for col in columns])
+    frame = pd.DataFrame(data=data, columns=columns)
+    if index:
+        frame.index = pd.to_datetime(index)
+    return frame
+
+
+def _extract_single_ticker_frame(frame: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    if not isinstance(frame.columns, pd.MultiIndex):
+        return frame.copy()
+    ticker_key = str(ticker)
+    level1 = frame.columns.get_level_values(1).astype(str)
+    if (level1 == ticker_key).any():
+        selected = frame.loc[:, level1 == ticker_key].copy()
+        selected.columns = selected.columns.droplevel(1)
+        return selected
+    level0 = frame.columns.get_level_values(0).astype(str)
+    if (level0 == ticker_key).any():
+        selected = frame.loc[:, level0 == ticker_key].copy()
+        selected.columns = selected.columns.droplevel(0)
+        return selected
+    return pd.DataFrame()
+
+
 def _hydrate_from_api(ticker: str, interval: str) -> None:
     """Attempt to download cached data from the public API.
 
@@ -60,13 +96,23 @@ def _hydrate_from_api(ticker: str, interval: str) -> None:
     base_url = os.getenv("HV_API_BASE_URL")
     if not base_url:
         return
-    url = f"{base_url.rstrip('/')}/prices/{ticker}?interval={interval}&fmt=parquet"
+    url = f"{base_url.rstrip('/')}/prices"
     try:
-        r = requests.get(url, timeout=10)
-        if r.status_code != 200:
+        response = requests.get(
+            url,
+            params={"tickers": ticker, "interval": interval},
+            timeout=10,
+        )
+        if response.status_code != 200:
             return
-        df = pd.read_parquet(BytesIO(r.content))
-        save_cache(ticker, interval, df, source="api")
+        payload = response.json()
+        frame = _frame_from_split_payload(payload)
+        if frame.empty:
+            return
+        frame = _extract_single_ticker_frame(frame, ticker)
+        if frame.empty:
+            return
+        save_cache(ticker, interval, frame, source="api")
     except Exception:
         return
 

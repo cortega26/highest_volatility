@@ -22,7 +22,7 @@ def _find_free_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def _apply_app_overrides() -> None:
+def _apply_app_overrides(tmp_path_factory: pytest.TempPathFactory) -> None:
     from pytest import MonkeyPatch
 
     from highest_volatility.app import api as api_module
@@ -46,6 +46,12 @@ def _apply_app_overrides() -> None:
     async def fake_download_price_history(*_: object, **__: object) -> pd.DataFrame:
         index = pd.date_range(datetime.now(tz=timezone.utc) - pd.Timedelta(days=4), periods=5, freq="D")
         return pd.DataFrame({"Close": [100, 101, 102, 103, 104]}, index=index)
+
+    db_path = tmp_path_factory.mktemp("annotations") / "annotations.db"
+    api_module.settings.annotations_db_path = str(db_path)
+    for attr in ("annotation_store", "annotation_lock"):
+        if hasattr(api_module.app.state, attr):
+            delattr(api_module.app.state, attr)
 
     monkeypatch.setattr(api_module, "schedule_cache_refresh", fake_schedule_cache_refresh, raising=False)
     monkeypatch.setattr(api_module, "build_universe", fake_build_universe, raising=True)

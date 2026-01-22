@@ -172,6 +172,9 @@ The FastAPI service now ships a progressive web app (PWA) at the API root. It
 loads the cached ticker universe, lets you annotate symbols, and synchronises
 queued updates once connectivity is restored.
 
+Annotation notes are persisted to a local SQLite file configured via
+``HV_ANNOTATIONS_DB`` (defaults to ``cache/annotations.db``).
+
 ### Running locally
 
 1. Install runtime dependencies and Playwright:

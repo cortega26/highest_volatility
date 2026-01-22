@@ -50,6 +50,7 @@ from highest_volatility.app.cli import (
 )
 from highest_volatility.compute.metrics import METRIC_REGISTRY
 from highest_volatility.errors import (
+    CacheError,
     ComputeError,
     ErrorCode,
     HVError,
@@ -60,6 +61,7 @@ from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.logging import get_logger, log_exception
 from highest_volatility.universe import build_universe
 from highest_volatility.pipeline.cache_refresh import schedule_cache_refresh
+from highest_volatility.storage.annotation_store import AnnotationStore
 from highest_volatility.security.validation import (
     SanitizationError,
     sanitize_interval,
@@ -88,6 +90,7 @@ class Settings(BaseSettings):
     cache_ttl_metrics: int = 60
     rate_limit: str = "60/minute"
     cache_refresh_interval: float = 60 * 60 * 24
+    annotations_db_path: str = "cache/annotations.db"
 
     class Config:
         env_prefix = "HV_"
@@ -244,20 +247,16 @@ class AnnotationPayload(BaseModel):
     client_timestamp: datetime
 
 
-def _ensure_annotation_state() -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]], asyncio.Lock]:
-    annotations = getattr(app.state, "annotations", None)
-    history = getattr(app.state, "annotation_history", None)
+def _ensure_annotation_store() -> tuple[AnnotationStore, asyncio.Lock]:
+    store = getattr(app.state, "annotation_store", None)
     lock = getattr(app.state, "annotation_lock", None)
-    if annotations is None:
-        annotations = {}
-        app.state.annotations = annotations
-    if history is None:
-        history = {}
-        app.state.annotation_history = history
+    if store is None:
+        store = AnnotationStore(Path(settings.annotations_db_path))
+        app.state.annotation_store = store
     if lock is None:
         lock = asyncio.Lock()
         app.state.annotation_lock = lock
-    return annotations, history, lock
+    return store, lock
 
 
 def _serve_file(path: Path, *, media_type: str | None = None) -> FileResponse:
@@ -336,7 +335,11 @@ async def on_startup() -> None:
             delay=settings.cache_refresh_interval,
         )
     )
-    _ensure_annotation_state()
+    try:
+        _ensure_annotation_store()
+    except Exception as exc:  # pragma: no cover - startup should not fail on annotations
+        logger.warning("Annotation store unavailable", exc_info=exc)
+        app.state.annotation_store = None
 
 
 @app.on_event("shutdown")
@@ -453,9 +456,25 @@ async def readyz() -> JSONResponse:
 async def list_annotations(request: Request) -> Any:
     """Return all stored annotations."""
 
-    annotations, _, lock = _ensure_annotation_state()
+    try:
+        store, lock = _ensure_annotation_store()
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to initialize annotation store",
+        )
+        _handle_error(error, event="annotations_store_init_failed", endpoint="annotations")
     async with lock:
-        records = [record.copy() for record in annotations.values()]
+        try:
+            records = [record.__dict__ for record in store.list_annotations()]
+        except Exception as exc:
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to load annotations",
+            )
+            _handle_error(error, event="annotations_read_failed", endpoint="annotations")
     return _prepare_response_payload(request, records)
 
 
@@ -467,9 +486,25 @@ async def annotation_history(request: Request, ticker: str) -> Any:
         sanitized = sanitize_multiple_tickers(ticker, max_tickers=1)[0]
     except SanitizationError as exc:
         _handle_error(exc, event="annotations_validation", endpoint="annotations")
-    _, history, lock = _ensure_annotation_state()
+    try:
+        store, lock = _ensure_annotation_store()
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to initialize annotation store",
+        )
+        _handle_error(error, event="annotations_store_init_failed", endpoint="annotations")
     async with lock:
-        entries = [entry.copy() for entry in history.get(sanitized, [])]
+        try:
+            entries = [record.__dict__ for record in store.load_history(sanitized)]
+        except Exception as exc:
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to load annotation history",
+            )
+            _handle_error(error, event="annotations_history_failed", endpoint="annotations")
     return _prepare_response_payload(request, entries)
 
 
@@ -494,17 +529,31 @@ async def upsert_annotation(request: Request, ticker: str, payload: AnnotationPa
         client_timestamp = client_timestamp.astimezone(timezone.utc)
     server_timestamp = datetime.now(timezone.utc)
 
-    annotations, history, lock = _ensure_annotation_state()
+    try:
+        store, lock = _ensure_annotation_store()
+    except Exception as exc:
+        error = wrap_error(
+            exc,
+            CacheError,
+            message="Failed to initialize annotation store",
+        )
+        _handle_error(error, event="annotations_store_init_failed", endpoint="annotations")
     async with lock:
-        record = {
-            "ticker": sanitized,
-            "note": note,
-            "updated_at": server_timestamp,
-            "client_timestamp": client_timestamp,
-        }
-        annotations[sanitized] = record
-        history.setdefault(sanitized, []).append(record.copy())
-    return _prepare_response_payload(request, record)
+        try:
+            record = store.upsert(
+                ticker=sanitized,
+                note=note,
+                updated_at=server_timestamp,
+                client_timestamp=client_timestamp,
+            )
+        except Exception as exc:
+            error = wrap_error(
+                exc,
+                CacheError,
+                message="Failed to persist annotation",
+            )
+            _handle_error(error, event="annotations_write_failed", endpoint="annotations")
+    return _prepare_response_payload(request, record.__dict__)
 
 
 def _prepare_response_payload(request: Request, payload: Any) -> Any:
