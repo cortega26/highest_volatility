@@ -16,6 +16,7 @@ the service. The table below summarises the exposed routes.
 | GET    | `/metrics`        | Compute metrics for requested tickers.  |
 | GET    | `/healthz`        | Report process and background task state. |
 | GET    | `/readyz`         | Report readiness of external services.  |
+| GET    | `/metrics/prometheus` | Expose Prometheus metrics for scraping. |
 
 ## HTTP caching
 

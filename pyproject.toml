@@ -28,6 +28,7 @@ dependencies = [
     "selenium",
     "selenium-stealth",
     "webdriver-manager",
+    "prometheus-client",
 ]
 
 [project.optional-dependencies]

@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import json
 import re
+import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
@@ -40,6 +41,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse, Response
 from fastapi.responses import ORJSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 import pandas as pd
 
@@ -118,6 +120,19 @@ _STATUS_BY_CODE = {
     ErrorCode.CONFIG: 500,
     ErrorCode.COMPUTE: 500,
 }
+
+
+REQUEST_COUNT = Counter(
+    "hv_fastapi_requests_total",
+    "Total count of HTTP requests.",
+    ["method", "path", "status"],
+)
+REQUEST_LATENCY_MS = Histogram(
+    "hv_fastapi_request_latency_ms",
+    "FastAPI request latency in milliseconds.",
+    ["method", "path"],
+    buckets=(50, 100, 200, 300, 500, 1000, 2000, 5000, 10000),
+)
 
 
 def _handle_error(error: HVError, *, event: str, endpoint: str) -> None:
@@ -238,6 +253,32 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CacheControlMiddleware, settings=settings)
 app.add_middleware(GZipMiddleware, minimum_size=128)
+
+
+class PrometheusMiddleware(BaseHTTPMiddleware):
+    """Capture request metrics for Prometheus scraping."""
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        start = time.perf_counter()
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+            REQUEST_COUNT.labels(
+                method=request.method,
+                path=request.url.path,
+                status=str(status_code),
+            ).inc()
+            REQUEST_LATENCY_MS.labels(
+                method=request.method,
+                path=request.url.path,
+            ).observe(duration_ms)
+
+
+app.add_middleware(PrometheusMiddleware)
 
 
 class AnnotationPayload(BaseModel):
@@ -450,6 +491,13 @@ async def readyz() -> JSONResponse:
     if not overall_ok:
         body["redis"]["detail"] = redis_report.get("detail", "redis_unreachable")
     return JSONResponse(status_code=status_code, content=body)
+
+
+@app.get("/metrics/prometheus", include_in_schema=False)
+async def prometheus_metrics() -> Response:
+    """Expose Prometheus metrics for scraping."""
+
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/annotations", tags=["annotations"])

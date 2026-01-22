@@ -8,6 +8,9 @@ commitments:
 2. **Data ingestion pipeline** – scheduled Fortune universe refresh and price
    backfills.
 
+Prometheus scrapes the FastAPI service at `/metrics/prometheus`, which exposes
+the `hv_fastapi_*` metrics referenced below.
+
 All SLOs adopt a 28-day rolling window unless otherwise specified to balance
 rapid incident detection with long-term trend analysis.
 
