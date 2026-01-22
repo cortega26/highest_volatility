@@ -69,7 +69,7 @@ def download_price_history(
         Raw DataFrame as returned by :func:`yfinance.download`.
     """
 
-    end_dt = datetime.now(timezone.utc)
+    end_dt = datetime.utcnow().replace(tzinfo=timezone.utc)
     start_dt = end_dt - timedelta(days=lookback_days * 2)
 
     def _download(*args, **kwargs):

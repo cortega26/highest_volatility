@@ -48,6 +48,7 @@ class _DummyStreamlit(ModuleType):
     def __init__(self) -> None:
         super().__init__("streamlit")
         self.sidebar = _DummySidebar()
+        self.session_state: dict[str, Any] = {}
 
     def set_page_config(self, *args: Any, **kwargs: Any) -> None:
         return None

@@ -276,7 +276,7 @@ def _render_universe_section(universe: UniverseData) -> None:
     if view.empty:
         return
     st.subheader("Fortune universe")
-    st.dataframe(view, use_container_width=True)
+    st.dataframe(view, width="stretch")
     escaped_view = view.map(_escape_spreadsheet_formula)
     st.download_button(
         "Download universe (CSV)",
@@ -341,7 +341,7 @@ def _render_metric_table(table: pd.DataFrame, metric_key: str) -> None:
         lambda row: [highlight_css if row.name < highlight_n else "" for _ in row],
         axis=1,
     )
-    st.dataframe(styled_table, use_container_width=True)
+    st.dataframe(styled_table, width="stretch")
     escaped_table = table.map(_escape_spreadsheet_formula)
     st.download_button(
         "Download metric ranking (CSV)",
@@ -381,7 +381,7 @@ def _render_price_history(close_only: pd.DataFrame, selected_tickers: list[str])
         .encode(x="date:T", y="close:Q", color="ticker:N")
         .properties(height=400)
     )
-    st.altair_chart(price_chart, use_container_width=True)
+    st.altair_chart(price_chart, width="stretch")
 
 
 def _render_drawdown_history(close_only: pd.DataFrame, selected_tickers: list[str]) -> None:
@@ -400,9 +400,9 @@ def _render_drawdown_history(close_only: pd.DataFrame, selected_tickers: list[st
         .encode(x="date:T", y=alt.Y("drawdown:Q", title="Drawdown"), color="ticker:N")
         .properties(height=400)
     )
-    st.altair_chart(drawdown_chart, use_container_width=True)
+    st.altair_chart(drawdown_chart, width="stretch")
     drawdown_summary = max_drawdown(close_only[selected_tickers])
-    st.dataframe(drawdown_summary, use_container_width=True)
+    st.dataframe(drawdown_summary, width="stretch")
 
 
 def _render_rolling_volatility(close_only: pd.DataFrame, selected_tickers: list[str]) -> None:
@@ -421,7 +421,7 @@ def _render_rolling_volatility(close_only: pd.DataFrame, selected_tickers: list[
         )
         .properties(height=400)
     )
-    st.altair_chart(rolling_chart, use_container_width=True)
+    st.altair_chart(rolling_chart, width="stretch")
 
 
 def _render_visualisations(close_only: pd.DataFrame, selected_tickers: list[str]) -> None:
