@@ -207,6 +207,7 @@ override defaults:
 | `HV_METRIC`                  | `"cc_vol"`          | Default metric key (Close-to-Close Volatility) when `/metrics` omits `metric`.
 | `HV_MIN_DAYS`                | `126`                | Minimum observations for metric calculations (bounds: 10–lookback).
 | `HV_REDIS_URL`               | `redis://localhost:6379/0` | Connection string for the Redis cache backend used by FastAPI Cache.
+| `HV_REQUIRE_REDIS_FOR_READYZ` | `true`                | Require Redis connectivity for `/readyz`; set `false` to treat in-memory cache fallback as ready.
 | `HV_CACHE_TTL_UNIVERSE`      | `60`                 | Cache TTL (seconds) for `/universe` responses.
 | `HV_CACHE_TTL_PRICES`        | `60`                 | Cache TTL (seconds) for `/prices` responses.
 | `HV_CACHE_TTL_METRICS`       | `60`                 | Cache TTL (seconds) for `/metrics` responses.

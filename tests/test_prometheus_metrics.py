@@ -21,6 +21,8 @@ def test_prometheus_metrics_endpoint_exposes_fastapi_metrics(monkeypatch) -> Non
     assert response.status_code == 200
     assert "hv_fastapi_requests_total" in response.text
     assert "hv_fastapi_request_latency_ms" in response.text
+    assert "hv_ingestor_job_duration_seconds" in response.text
+    assert "hv_ingestor_job_results_total" in response.text
 
 
 def test_prometheus_metrics_records_validation_errors(monkeypatch) -> None:

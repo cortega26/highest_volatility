@@ -42,7 +42,8 @@ Runtime notes:
 - Container builds now include a Docker ``HEALTHCHECK`` that polls ``/healthz``.
   Kubernetes operators should also wire ``/readyz`` into readiness probes so
   nodes only receive traffic once Redis connectivity and background refresh
-  tasks are healthy.
+  tasks are healthy. Set ``HV_REQUIRE_REDIS_FOR_READYZ=false`` to allow
+  readiness to pass when the API falls back to the in-memory cache.
 
 ### Operational endpoints
 

@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import List
 
 from highest_volatility.cache.store import CACHE_ROOT
 from highest_volatility.ingest.prices import download_price_history
 from highest_volatility.errors import HVError, wrap_error
 from highest_volatility.logging import get_logger, log_exception
+from prometheus_client import Counter, Histogram
 
 
 logger = get_logger(__name__)
+
+
+INGESTOR_JOB_DURATION_SECONDS = Histogram(
+    "hv_ingestor_job_duration_seconds",
+    "Duration of cache refresh iterations in seconds.",
+    buckets=(30, 60, 120, 300, 600, 900, 1800, 3600),
+)
+INGESTOR_JOB_RESULTS_TOTAL = Counter(
+    "hv_ingestor_job_results_total",
+    "Total count of cache refresh iterations by result.",
+    ["result"],
+)
 
 
 def _cached_tickers(interval: str = "1d") -> List[str]:
@@ -73,6 +87,8 @@ async def schedule_cache_refresh(
     """
 
     while True:
+        started_at = time.perf_counter()
+        result: str | None = None
         try:
             await refresh_cached_prices(interval=interval, lookback_days=lookback_days)
         except asyncio.CancelledError:
@@ -81,6 +97,7 @@ async def schedule_cache_refresh(
             )
             raise
         except Exception as err:  # pragma: no cover - defensive catch-all
+            result = "failed"
             log_exception(
                 logger,
                 wrap_error(
@@ -93,6 +110,13 @@ async def schedule_cache_refresh(
                 ),
                 event="cache_refresh_iteration_failed",
             )
+        else:
+            result = "success"
+        finally:
+            if result is not None:
+                duration = time.perf_counter() - started_at
+                INGESTOR_JOB_DURATION_SECONDS.observe(duration)
+                INGESTOR_JOB_RESULTS_TOTAL.labels(result=result).inc()
         try:
             await asyncio.sleep(delay)
         except asyncio.CancelledError:

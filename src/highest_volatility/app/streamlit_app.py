@@ -103,6 +103,10 @@ class UniverseData:
         return self.fortune.loc[:, columns]
 
 
+def _clamp_int(value: int, *, minimum: int, maximum: int) -> int:
+    return max(min(value, maximum), minimum)
+
+
 st.set_page_config(page_title="Highest Volatility", layout="wide")
 
 st.title("Highest Volatility Explorer")
@@ -132,12 +136,31 @@ with st.sidebar:
     metric_key = st.selectbox(
         "Metric", METRIC_CHOICES, index=0, format_func=metric_display_name
     )
+    min_days_label = "Minimum observations per ticker"
+    min_days_key = min_days_label
+    min_days_max = lookback_days
+    min_days_default = _clamp_int(
+        DEFAULT_MIN_DAYS,
+        minimum=10,
+        maximum=min_days_max,
+    )
+    if min_days_key in st.session_state:
+        try:
+            existing_min_days = int(st.session_state[min_days_key])
+        except (TypeError, ValueError):
+            existing_min_days = min_days_default
+        st.session_state[min_days_key] = _clamp_int(
+            existing_min_days,
+            minimum=10,
+            maximum=min_days_max,
+        )
     min_days = st.number_input(
-        "Minimum observations per ticker",
+        min_days_label,
         min_value=10,
-        max_value=lookback_days,
-        value=DEFAULT_MIN_DAYS,
+        max_value=min_days_max,
+        value=min_days_default,
         step=5,
+        key=min_days_key,
     )
     prepost = st.checkbox(
         "Include pre/post-market data",
@@ -276,7 +299,7 @@ def _render_universe_section(universe: UniverseData) -> None:
     if view.empty:
         return
     st.subheader("Fortune universe")
-    st.dataframe(view, width="stretch")
+    st.dataframe(view, use_container_width=True)
     escaped_view = view.map(_escape_spreadsheet_formula)
     st.download_button(
         "Download universe (CSV)",
@@ -341,7 +364,7 @@ def _render_metric_table(table: pd.DataFrame, metric_key: str) -> None:
         lambda row: [highlight_css if row.name < highlight_n else "" for _ in row],
         axis=1,
     )
-    st.dataframe(styled_table, width="stretch")
+    st.dataframe(styled_table, use_container_width=True)
     escaped_table = table.map(_escape_spreadsheet_formula)
     st.download_button(
         "Download metric ranking (CSV)",
@@ -381,7 +404,7 @@ def _render_price_history(close_only: pd.DataFrame, selected_tickers: list[str])
         .encode(x="date:T", y="close:Q", color="ticker:N")
         .properties(height=400)
     )
-    st.altair_chart(price_chart, width="stretch")
+    st.altair_chart(price_chart, use_container_width=True)
 
 
 def _render_drawdown_history(close_only: pd.DataFrame, selected_tickers: list[str]) -> None:
@@ -400,9 +423,9 @@ def _render_drawdown_history(close_only: pd.DataFrame, selected_tickers: list[st
         .encode(x="date:T", y=alt.Y("drawdown:Q", title="Drawdown"), color="ticker:N")
         .properties(height=400)
     )
-    st.altair_chart(drawdown_chart, width="stretch")
+    st.altair_chart(drawdown_chart, use_container_width=True)
     drawdown_summary = max_drawdown(close_only[selected_tickers])
-    st.dataframe(drawdown_summary, width="stretch")
+    st.dataframe(drawdown_summary, use_container_width=True)
 
 
 def _render_rolling_volatility(close_only: pd.DataFrame, selected_tickers: list[str]) -> None:
@@ -421,7 +444,7 @@ def _render_rolling_volatility(close_only: pd.DataFrame, selected_tickers: list[
         )
         .properties(height=400)
     )
-    st.altair_chart(rolling_chart, width="stretch")
+    st.altair_chart(rolling_chart, use_container_width=True)
 
 
 def _render_visualisations(close_only: pd.DataFrame, selected_tickers: list[str]) -> None:

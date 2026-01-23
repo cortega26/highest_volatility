@@ -93,9 +93,15 @@ class Settings(BaseSettings):
     cache_ttl_metrics: int = 60
     rate_limit: str = "60/minute"
     cache_refresh_interval: float = 60 * 60 * 24
+    require_redis_for_readyz: bool = True
     annotations_db_path: str = Field(
         "cache/annotations.db",
-        validation_alias=AliasChoices("ANNOTATIONS_DB", "ANNOTATIONS_DB_PATH"),
+        validation_alias=AliasChoices(
+            "HV_ANNOTATIONS_DB",
+            "HV_ANNOTATIONS_DB_PATH",
+            "ANNOTATIONS_DB",
+            "ANNOTATIONS_DB_PATH",
+        ),
     )
 
     class Config:
@@ -490,7 +496,12 @@ async def readyz() -> JSONResponse:
     redis_ok, redis_report = await _check_redis_health()
     task_ok, task_report = _check_cache_refresh_task()
     cache_state = getattr(app.state, "cache_health", "unknown")
-    overall_ok = redis_ok and task_ok and cache_state == "healthy"
+    redis_required = settings.require_redis_for_readyz
+    if redis_required:
+        cache_ready = cache_state == "healthy"
+    else:
+        cache_ready = cache_state in {"healthy", "degraded"}
+    overall_ok = task_ok and cache_ready and (redis_ok or not redis_required)
     status_code = status.HTTP_200_OK if overall_ok else status.HTTP_503_SERVICE_UNAVAILABLE
     body = {
         "status": "ok" if overall_ok else "error",
@@ -524,7 +535,7 @@ async def list_annotations(request: Request) -> Any:
         _handle_error(error, event="annotations_store_init_failed", endpoint="annotations")
     async with lock:
         try:
-            records = [record.__dict__ for record in store.list_annotations()]
+            records = await asyncio.to_thread(store.list_annotations)
         except Exception as exc:
             error = wrap_error(
                 exc,
@@ -532,7 +543,7 @@ async def list_annotations(request: Request) -> Any:
                 message="Failed to load annotations",
             )
             _handle_error(error, event="annotations_read_failed", endpoint="annotations")
-    return _prepare_response_payload(request, records)
+    return _prepare_response_payload(request, [record.__dict__ for record in records])
 
 
 @app.get("/annotations/history/{ticker}", tags=["annotations"])
@@ -554,7 +565,7 @@ async def annotation_history(request: Request, ticker: str) -> Any:
         _handle_error(error, event="annotations_store_init_failed", endpoint="annotations")
     async with lock:
         try:
-            entries = [record.__dict__ for record in store.load_history(sanitized)]
+            entries = await asyncio.to_thread(store.load_history, sanitized)
         except Exception as exc:
             error = wrap_error(
                 exc,
@@ -562,7 +573,7 @@ async def annotation_history(request: Request, ticker: str) -> Any:
                 message="Failed to load annotation history",
             )
             _handle_error(error, event="annotations_history_failed", endpoint="annotations")
-    return _prepare_response_payload(request, entries)
+    return _prepare_response_payload(request, [record.__dict__ for record in entries])
 
 
 @app.put("/annotations/{ticker}", tags=["annotations"])
@@ -597,7 +608,8 @@ async def upsert_annotation(request: Request, ticker: str, payload: AnnotationPa
         _handle_error(error, event="annotations_store_init_failed", endpoint="annotations")
     async with lock:
         try:
-            record = store.upsert(
+            record = await asyncio.to_thread(
+                store.upsert,
                 ticker=sanitized,
                 note=note,
                 updated_at=server_timestamp,

@@ -42,10 +42,10 @@ rapid incident detection with long-term trend analysis.
   \[
   \text{Latency Compliance} = \frac{\text{jobs}_\text{on\_time}(t_{0..28d})}{\text{jobs}_\text{triggered}(t_{0..28d})}
   \]
-- **Measurement source**: Prometheus summary `hv_ingestor_job_duration_seconds`
+- **Measurement source**: Prometheus histogram `hv_ingestor_job_duration_seconds`
   with query:
   ```promql
-  sum(increase(hv_ingestor_job_duration_seconds_count{le="600"}[28d]))
+  sum(increase(hv_ingestor_job_duration_seconds_bucket{le="600"}[28d]))
   /
   sum(increase(hv_ingestor_job_duration_seconds_count[28d]))
   ```

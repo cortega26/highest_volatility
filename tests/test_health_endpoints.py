@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from highest_volatility.app.api import app
+from highest_volatility.app import api
 
 
 class _StubRedisClient:
@@ -45,7 +45,7 @@ def _instrumented_client(
     monkeypatch.setattr(
         "highest_volatility.app.api.schedule_cache_refresh", refresh_factory
     )
-    with TestClient(app) as client:
+    with TestClient(api.app) as client:
         yield client
 
 
@@ -88,6 +88,18 @@ def test_readyz_fails_when_redis_unreachable(monkeypatch: pytest.MonkeyPatch) ->
         assert ready.status_code == 503
         ready_payload = ready.json()
         assert ready_payload["redis"]["status"] == "down"
+
+
+def test_readyz_allows_in_memory_cache_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Readiness can succeed without Redis when explicitly permitted."""
+
+    redis_client = _StubRedisClient(should_fail=True)
+    monkeypatch.setattr(api.settings, "require_redis_for_readyz", False, raising=False)
+    with _instrumented_client(monkeypatch, redis_client=redis_client, refresh_factory=_noop_refresh) as client:
+        ready = client.get("/readyz")
+        assert ready.status_code == 200
+        ready_payload = ready.json()
+        assert ready_payload["status"] == "ok"
 
 
 def test_healthz_detects_background_task_failure(monkeypatch: pytest.MonkeyPatch) -> None:
