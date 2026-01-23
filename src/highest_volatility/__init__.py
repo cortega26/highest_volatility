@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from importlib import metadata as _metadata
 
+from highest_volatility.config.environment import (
+    ensure_windows_environment as _ensure_windows_environment,
+)
+
+_ensure_windows_environment()
+
 __all__ = ["__version__"]
 
 try:

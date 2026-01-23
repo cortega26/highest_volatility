@@ -12,12 +12,13 @@ import os
 import pandas as pd
 import requests  # type: ignore[import]
 from highest_volatility.pipeline import validate_cache
+from highest_volatility.config.paths import expand_env_path
 
 # Default on-disk cache root. Use project-visible folder unless overridden.
 def _resolve_cache_root() -> Path:
     env_root = os.getenv("HV_CACHE_ROOT")
     if env_root:
-        return Path(env_root).expanduser()
+        return expand_env_path(env_root, field="HV_CACHE_ROOT")
     return Path("cache/prices")
 
 CACHE_ROOT = _resolve_cache_root()

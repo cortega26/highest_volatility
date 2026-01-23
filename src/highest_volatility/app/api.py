@@ -31,7 +31,7 @@ from fastapi_cache.decorator import cache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -71,6 +71,7 @@ from highest_volatility.security.validation import (
     sanitize_multiple_tickers,
     sanitize_positive_int,
 )
+from highest_volatility.config.paths import expand_env_path
 
 
 class Settings(BaseSettings):
@@ -99,6 +100,11 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "HV_"
+
+    @field_validator("annotations_db_path", mode="before")
+    @classmethod
+    def _expand_annotations_db_path(cls, value: str) -> str:
+        return str(expand_env_path(str(value), field="HV_ANNOTATIONS_DB"))
 
 
 settings = Settings()

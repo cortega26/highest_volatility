@@ -1,4 +1,5 @@
 import importlib
+import os
 
 import json
 
@@ -67,11 +68,26 @@ def test_load_cached_purges_corrupt_manifest(tmp_path, monkeypatch):
 
 
 def test_cache_root_env_override(monkeypatch, tmp_path):
-    target = tmp_path / "custom-cache"
-    monkeypatch.setenv("HV_CACHE_ROOT", str(target))
+    monkeypatch.setenv("HV_CACHE_ROOT_BASE", str(tmp_path))
+    template = (
+        "%HV_CACHE_ROOT_BASE%/custom-cache"
+        if os.name == "nt"
+        else "$HV_CACHE_ROOT_BASE/custom-cache"
+    )
+    monkeypatch.setenv("HV_CACHE_ROOT", template)
     reloaded = importlib.reload(store)
     try:
-        assert reloaded.CACHE_ROOT == target
+        assert reloaded.CACHE_ROOT == tmp_path / "custom-cache"
     finally:
+        monkeypatch.delenv("HV_CACHE_ROOT_BASE", raising=False)
         monkeypatch.delenv("HV_CACHE_ROOT", raising=False)
         importlib.reload(store)
+
+
+def test_cache_root_env_rejects_unresolved_placeholder(monkeypatch):
+    template = "%HV_CACHE_ROOT_MISSING%/cache" if os.name == "nt" else "$HV_CACHE_ROOT_MISSING/cache"
+    monkeypatch.setenv("HV_CACHE_ROOT", template)
+    with pytest.raises(ValueError):
+        importlib.reload(store)
+    monkeypatch.delenv("HV_CACHE_ROOT", raising=False)
+    importlib.reload(store)

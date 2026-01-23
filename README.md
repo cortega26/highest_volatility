@@ -174,6 +174,10 @@ queued updates once connectivity is restored.
 
 Annotation notes are persisted to a local SQLite file configured via
 ``HV_ANNOTATIONS_DB`` (defaults to ``cache/annotations.db``; legacy alias: ``HV_ANNOTATIONS_DB_PATH``).
+Environment variable placeholders are expanded; unresolved placeholders raise
+configuration errors to prevent literal ``%VAR%`` paths.
+On Windows, the package also supplies default ``SystemDrive``/``ProgramData``
+values when missing to avoid stray ``%SystemDrive%`` folders.
 
 ### Running locally
 
@@ -227,6 +231,8 @@ live side by side in that directory (for example, `AAPL.parquet` and
 `AAPL.json`), matching the `_paths` helper in `highest_volatility/cache/store.py`.
 Set the ``HV_CACHE_ROOT`` environment variable to point cache storage to an
 alternate location when deploying on ephemeral filesystems or managed hosts.
+Environment variable placeholders are expanded; unresolved placeholders raise
+configuration errors to prevent literal ``%VAR%`` paths.
 
 Run the scheduler from the repository root:
 
