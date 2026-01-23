@@ -8,6 +8,9 @@ from .config import PerfConfig
 
 
 CONFIG = PerfConfig.load()
+AUTH_HEADERS = (
+    {"Authorization": f"Bearer {CONFIG.api_key}"} if CONFIG.api_key else {}
+)
 
 
 @events.request.add_listener
@@ -52,6 +55,7 @@ class VolatilityUser(HttpUser):
                 "tickers": CONFIG.tickers,
                 "lookback_days": CONFIG.lookback_days,
             },
+            headers=AUTH_HEADERS,
         )
 
     @task(1)
@@ -65,6 +69,7 @@ class VolatilityUser(HttpUser):
                 "lookback_days": CONFIG.lookback_days,
                 "min_days": CONFIG.min_days,
             },
+            headers=AUTH_HEADERS,
         )
 
 

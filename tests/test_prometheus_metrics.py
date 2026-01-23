@@ -11,10 +11,11 @@ async def _noop_refresh(**_: object) -> None:
     await asyncio.sleep(0)
 
 
-def test_prometheus_metrics_endpoint_exposes_fastapi_metrics(monkeypatch) -> None:
+def test_prometheus_metrics_endpoint_exposes_fastapi_metrics(monkeypatch, auth_headers) -> None:
     monkeypatch.setattr(api, "schedule_cache_refresh", _noop_refresh, raising=False)
 
     with TestClient(api.app) as client:
+        client.headers.update(auth_headers)
         client.get("/healthz")
         response = client.get("/metrics/prometheus")
 
@@ -25,10 +26,11 @@ def test_prometheus_metrics_endpoint_exposes_fastapi_metrics(monkeypatch) -> Non
     assert "hv_ingestor_job_results_total" in response.text
 
 
-def test_prometheus_metrics_records_validation_errors(monkeypatch) -> None:
+def test_prometheus_metrics_records_validation_errors(monkeypatch, auth_headers) -> None:
     monkeypatch.setattr(api, "schedule_cache_refresh", _noop_refresh, raising=False)
 
     with TestClient(api.app) as client:
+        client.headers.update(auth_headers)
         client.get("/metrics")
         response = client.get("/metrics/prometheus")
 

@@ -27,9 +27,10 @@ def test_load_cached_hydrates_from_api(tmp_path, monkeypatch):
         def json(self):
             return payload
 
-    def fake_get(url, params=None, timeout=10):
+    def fake_get(url, params=None, headers=None, timeout=10):
         assert url == "https://example.test/prices"
         assert params == {"tickers": "AAPL", "interval": "1d"}
+        assert headers is None
         return Response()
 
     monkeypatch.setattr(store.requests, "get", fake_get)
@@ -51,7 +52,7 @@ def test_load_cached_hydration_skips_on_http_error(tmp_path, monkeypatch):
         def json(self):
             return {}
 
-    def fake_get(url, params=None, timeout=10):
+    def fake_get(url, params=None, headers=None, timeout=10):
         return Response()
 
     monkeypatch.setattr(store.requests, "get", fake_get)

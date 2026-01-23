@@ -38,7 +38,10 @@ Runtime notes:
   imported without installing the package separately.
 - Override any FastAPI settings with ``HV_``-prefixed environment variables.
   Common examples include ``HV_REDIS_URL`` (default ``redis://localhost:6379/0``)
-  and ``HV_CACHE_REFRESH_INTERVAL``.
+  and ``HV_CACHE_REFRESH_INTERVAL``. Set ``HV_API_KEY`` to enable API key
+  authentication (requests must include ``Authorization: Bearer <key>`` or
+  ``X-API-Key``). Use ``HV_REQUIRE_API_KEY=false`` to disable auth for local
+  development.
 - Container builds now include a Docker ``HEALTHCHECK`` that polls ``/healthz``.
   Kubernetes operators should also wire ``/readyz`` into readiness probes so
   nodes only receive traffic once Redis connectivity and background refresh
@@ -93,7 +96,9 @@ desktop environments. Introduce a short ``chunk_sleep`` (for example, ``0.5``
 seconds) after each batch if the upstream API begins throttling requests.
 
 Client utilities such as ``cache.store`` will hydrate missing local cache files
-from this API when the ``HV_API_BASE_URL`` environment variable is set.
+from this API when the ``HV_API_BASE_URL`` environment variable is set. If the
+API enforces authentication, set ``HV_API_KEY`` so cache hydration can send the
+required bearer token.
 
 ## Metrics
 
@@ -179,6 +184,10 @@ Environment variable placeholders are expanded; unresolved placeholders raise
 configuration errors to prevent literal ``%VAR%`` paths.
 On Windows, the package also supplies default ``SystemDrive``/``ProgramData``
 values when missing to avoid stray ``%SystemDrive%`` folders.
+When API key auth is enabled, the PWA reads the key from local storage
+(``hvApiKey``) and sends it as a bearer token for API requests. You can set it
+manually in the browser console via ``localStorage.setItem("hvApiKey", "<key>")``
+or call ``window.hvDataLayer.setApiKey("<key>")`` after the page loads.
 
 ### Running locally
 

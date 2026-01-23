@@ -40,6 +40,15 @@ and the ASGI stack enables `GZipMiddleware`. Clients that send
 `Accept-Encoding: gzip` receive compressed responses annotated with
 `Content-Encoding: gzip`.
 
+## Authentication
+
+When API key authentication is enabled, callers must include a shared secret in
+either the `Authorization` header (`Bearer <token>`) or `X-API-Key`. The key is
+configured via `HV_API_KEY`, and enforcement is controlled by
+`HV_REQUIRE_API_KEY` (default `true`). The `/healthz` and `/readyz` probes remain
+unauthenticated so health checks can run without secrets. The Prometheus
+scrape endpoint (`/metrics/prometheus`) requires the API key when enabled.
+
 ## `/universe`
 
 Return a curated Fortune universe backed by Selenium scraping and cached
@@ -119,6 +128,8 @@ clients that do not need full OHLCV data.
 
 * `400 Bad Request` for sanitisation errors such as unknown intervals or too
   many tickers (`{"detail": "Too many tickers supplied."}`).
+* `401 Unauthorized` when API key authentication is enabled and the caller
+  omits or supplies an invalid key.
 * `502 Bad Gateway` for upstream download problems surfaced as `DataSourceError`s.
 * `502 Bad Gateway` for integration failures when wrapping unexpected exceptions.
 
@@ -155,6 +166,8 @@ fields per row.
 
 * `400 Bad Request` when a metric key is unknown or query parameters fail
   sanitisation.
+* `401 Unauthorized` when API key authentication is enabled and the caller
+  omits or supplies an invalid key.
 * `502 Bad Gateway` when the price download stage raises a cache or data source
   error.
 * `500 Internal Server Error` when the metric computation itself raises an
@@ -207,6 +220,8 @@ override defaults:
 | `HV_METRIC`                  | `"cc_vol"`          | Default metric key (Close-to-Close Volatility) when `/metrics` omits `metric`.
 | `HV_MIN_DAYS`                | `126`                | Minimum observations for metric calculations (bounds: 10–lookback).
 | `HV_REDIS_URL`               | `redis://localhost:6379/0` | Connection string for the Redis cache backend used by FastAPI Cache.
+| `HV_API_KEY`                 | _unset_              | Shared API key for authenticating requests (use with `Authorization: Bearer` or `X-API-Key`).
+| `HV_REQUIRE_API_KEY`         | `true`               | Enforce API key authentication on data and annotation endpoints.
 | `HV_REQUIRE_REDIS_FOR_READYZ` | `true`                | Require Redis connectivity for `/readyz`; set `false` to treat in-memory cache fallback as ready.
 | `HV_CACHE_TTL_UNIVERSE`      | `60`                 | Cache TTL (seconds) for `/universe` responses.
 | `HV_CACHE_TTL_PRICES`        | `60`                 | Cache TTL (seconds) for `/prices` responses.

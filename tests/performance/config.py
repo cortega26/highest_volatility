@@ -15,6 +15,7 @@ class PerfConfig:
     metric: str
     lookback_days: int
     min_days: int
+    api_key: str | None
     stage_duration: int
     ramp_users: int
     steady_users: int
@@ -27,6 +28,7 @@ class PerfConfig:
         metric = os.getenv("HV_PERF_METRIC", "cc_vol")
         lookback_days = int(os.getenv("HV_PERF_LOOKBACK_DAYS", "90"))
         min_days = int(os.getenv("HV_PERF_MIN_DAYS", "60"))
+        api_key = os.getenv("HV_PERF_API_KEY")
         stage_duration = int(os.getenv("HV_PERF_STAGE_DURATION", "300"))
         ramp_users = int(os.getenv("HV_PERF_RAMP_USERS", "25"))
         steady_users = int(os.getenv("HV_PERF_STEADY_USERS", "75"))
@@ -37,6 +39,7 @@ class PerfConfig:
             metric=metric,
             lookback_days=lookback_days,
             min_days=min_days,
+            api_key=api_key,
             stage_duration=stage_duration,
             ramp_users=ramp_users,
             steady_users=steady_users,

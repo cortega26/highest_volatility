@@ -7,10 +7,39 @@ import {
 } from "./db.js";
 
 const nowIsoString = () => new Date().toISOString();
+const API_KEY_STORAGE = "hvApiKey";
+
+const readStoredApiKey = () => {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return null;
+    }
+    return window.localStorage.getItem(API_KEY_STORAGE);
+  } catch (_error) {
+    return null;
+  }
+};
 
 export class DataLayer {
-  constructor({ baseUrl }) {
+  constructor({ baseUrl, apiKey } = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.apiKey = apiKey ?? readStoredApiKey();
+  }
+
+  setApiKey(apiKey) {
+    this.apiKey = apiKey ?? null;
+    try {
+      if (typeof window === "undefined" || !window.localStorage) {
+        return;
+      }
+      if (this.apiKey) {
+        window.localStorage.setItem(API_KEY_STORAGE, this.apiKey);
+      } else {
+        window.localStorage.removeItem(API_KEY_STORAGE);
+      }
+    } catch (_error) {
+      // Ignore storage failures (private browsing, policy, etc.).
+    }
   }
 
   async loadUniverse() {
@@ -174,10 +203,16 @@ export class DataLayer {
 
   async #fetchJson(path, options = undefined) {
     const url = `${this.baseUrl}${path}`;
+    const headers = new Headers(options?.headers ?? {});
+    const apiKey = this.apiKey ?? readStoredApiKey();
+    if (apiKey && !headers.has("Authorization") && !headers.has("X-API-Key")) {
+      headers.set("Authorization", `Bearer ${apiKey}`);
+    }
     const response = await fetch(url, {
       credentials: "same-origin",
       cache: "no-store",
       ...options,
+      headers,
     });
     if (!response.ok) {
       const text = await response.text();

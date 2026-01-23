@@ -98,10 +98,15 @@ def _hydrate_from_api(ticker: str, interval: str) -> None:
     if not base_url:
         return
     url = f"{base_url.rstrip('/')}/prices"
+    headers: dict[str, str] = {}
+    api_key = os.getenv("HV_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     try:
         response = requests.get(
             url,
             params={"tickers": ticker, "interval": interval},
+            headers=headers or None,
             timeout=10,
         )
         if response.status_code != 200:

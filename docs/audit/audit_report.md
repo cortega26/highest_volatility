@@ -15,8 +15,8 @@ Repository: c:\Users\corte\VS Code Projects\highest_volatility
 - Out of scope: production infrastructure configs, live Yahoo Finance or Redis calls, and runtime performance profiling.
 
 ## Summary
-- Findings tracked: 5 total; 1 open, 4 closed. See `docs/audit/findings_ledger.md`.
-- Highest risk: API endpoints still lack authentication and authorization (F-0001, S1).
+- Findings tracked: 5 total; 0 open, 5 closed. See `docs/audit/findings_ledger.md`.
+- Highest risk: none identified in this audit cycle; continue monitoring auth and key rotation practices.
 
 ## Detailed review by audit area
 
@@ -62,7 +62,7 @@ Files reviewed and steps:
   - Cross-checked route contracts, parameters, and error handling with implementation.
 
 Findings:
-- F-0001 remains open: API endpoints are unauthenticated.
+- F-0001 is resolved: API key authentication enforced on data and annotation endpoints.
 
 ### A3 Streamlit UI reliability
 Objective: ensure the UI renders without Streamlit runtime errors.
@@ -139,4 +139,4 @@ Residual note:
 - Lint (if enabled): `ruff check src tests scripts` (expected pass if ruff is installed).
 
 ## Open items
-- F-0001: Add authentication and authorization for API endpoints.
+- None.

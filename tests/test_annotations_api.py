@@ -24,17 +24,19 @@ def _reset_annotation_state() -> None:
             delattr(api.app.state, attr)
 
 
-def _build_client(monkeypatch: pytest.MonkeyPatch, db_path) -> TestClient:
+def _build_client(monkeypatch: pytest.MonkeyPatch, db_path, auth_headers) -> TestClient:
     monkeypatch.setattr(api, "schedule_cache_refresh", _noop_refresh, raising=False)
     monkeypatch.setattr(api.settings, "annotations_db_path", str(db_path), raising=False)
     _reset_annotation_state()
-    return TestClient(api.app)
+    client = TestClient(api.app)
+    client.headers.update(auth_headers)
+    return client
 
 
-def test_annotations_persist_across_clients(tmp_path, monkeypatch):
+def test_annotations_persist_across_clients(tmp_path, monkeypatch, auth_headers):
     db_path = tmp_path / "annotations.db"
 
-    with _build_client(monkeypatch, db_path) as client:
+    with _build_client(monkeypatch, db_path, auth_headers) as client:
         response = client.put(
             "/annotations/AAPL",
             json={
@@ -44,7 +46,7 @@ def test_annotations_persist_across_clients(tmp_path, monkeypatch):
         )
         assert response.status_code == 200
 
-    with _build_client(monkeypatch, db_path) as client:
+    with _build_client(monkeypatch, db_path, auth_headers) as client:
         response = client.get("/annotations")
         assert response.status_code == 200
         payload = response.json()
@@ -55,7 +57,7 @@ def test_annotations_persist_across_clients(tmp_path, monkeypatch):
         assert len(history.json()) == 1
 
 
-def test_annotations_returns_503_on_store_failure(tmp_path, monkeypatch):
+def test_annotations_returns_503_on_store_failure(tmp_path, monkeypatch, auth_headers):
     db_path = tmp_path / "annotations.db"
 
     def _boom(self):
@@ -63,6 +65,6 @@ def test_annotations_returns_503_on_store_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(api.AnnotationStore, "list_annotations", _boom, raising=False)
 
-    with _build_client(monkeypatch, db_path) as client:
+    with _build_client(monkeypatch, db_path, auth_headers) as client:
         response = client.get("/annotations")
         assert response.status_code == 503

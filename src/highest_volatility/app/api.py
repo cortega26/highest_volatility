@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import json
 import re
+import secrets
 import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -23,7 +24,7 @@ from typing import Any, Iterable, cast
 
 import redis.asyncio as redis
 from redis.exceptions import ConnectionError as RedisConnectionError
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
@@ -93,6 +94,14 @@ class Settings(BaseSettings):
     cache_ttl_metrics: int = 60
     rate_limit: str = "60/minute"
     cache_refresh_interval: float = 60 * 60 * 24
+    api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("HV_API_KEY", "API_KEY"),
+    )
+    require_api_key: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("HV_REQUIRE_API_KEY", "REQUIRE_API_KEY"),
+    )
     require_redis_for_readyz: bool = True
     annotations_db_path: str = Field(
         "cache/annotations.db",
@@ -160,6 +169,38 @@ def _handle_error(error: HVError, *, event: str, endpoint: str) -> None:
 
 def get_settings() -> Settings:
     return settings
+
+
+def _extract_api_key(authorization: str | None, api_key_header: str | None) -> str | None:
+    if api_key_header:
+        return api_key_header
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    return token.strip() or None
+
+
+def _require_api_key(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    api_key_header: str | None = Header(default=None, alias="X-API-Key"),
+) -> None:
+    if not settings.require_api_key:
+        return
+    expected = settings.api_key
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="API key authentication is enabled but no key is configured.",
+        )
+    provided = _extract_api_key(authorization, api_key_header)
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 class SecureHeadersMiddleware(BaseHTTPMiddleware):
@@ -514,14 +555,19 @@ async def readyz() -> JSONResponse:
 
 
 @app.get("/metrics/prometheus", include_in_schema=False)
-async def prometheus_metrics() -> Response:
+async def prometheus_metrics(
+    auth: None = Depends(_require_api_key),
+) -> Response:
     """Expose Prometheus metrics for scraping."""
 
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/annotations", tags=["annotations"])
-async def list_annotations(request: Request) -> Any:
+async def list_annotations(
+    request: Request,
+    auth: None = Depends(_require_api_key),
+) -> Any:
     """Return all stored annotations."""
 
     try:
@@ -547,7 +593,11 @@ async def list_annotations(request: Request) -> Any:
 
 
 @app.get("/annotations/history/{ticker}", tags=["annotations"])
-async def annotation_history(request: Request, ticker: str) -> Any:
+async def annotation_history(
+    request: Request,
+    ticker: str,
+    auth: None = Depends(_require_api_key),
+) -> Any:
     """Return the audit trail for a single ticker."""
 
     try:
@@ -577,7 +627,12 @@ async def annotation_history(request: Request, ticker: str) -> Any:
 
 
 @app.put("/annotations/{ticker}", tags=["annotations"])
-async def upsert_annotation(request: Request, ticker: str, payload: AnnotationPayload) -> Any:
+async def upsert_annotation(
+    request: Request,
+    ticker: str,
+    payload: AnnotationPayload,
+    auth: None = Depends(_require_api_key),
+) -> Any:
     """Persist a ticker annotation and record its revision history."""
 
     try:
@@ -705,6 +760,7 @@ def universe_endpoint(
     request: Request,
     top_n: int | None = None,
     settings: Settings = Depends(get_settings),
+    auth: None = Depends(_require_api_key),
 ):
     """Return a validated ticker universe."""
 
@@ -743,6 +799,7 @@ def prices_endpoint(
     prepost: bool | None = None,
     columns: str | None = None,
     settings: Settings = Depends(get_settings),
+    auth: None = Depends(_require_api_key),
 ):
     """Return price history for ``tickers``."""
 
@@ -795,6 +852,7 @@ def metrics_endpoint(
     interval: str | None = None,
     min_days: int | None = None,
     settings: Settings = Depends(get_settings),
+    auth: None = Depends(_require_api_key),
 ):
     """Compute ``metric`` for ``tickers``."""
 

@@ -11,7 +11,7 @@ from highest_volatility.app import api
 
 
 @pytest.fixture(name="prices_client")
-def fixture_prices_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def fixture_prices_client(monkeypatch: pytest.MonkeyPatch, auth_headers) -> TestClient:
     """Return a TestClient with deterministic price responses."""
 
     def fake_download_price_history(
@@ -43,6 +43,7 @@ def fixture_prices_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(api, "schedule_cache_refresh", _noop_refresh)
 
     with TestClient(api.app) as client:
+        client.headers.update(auth_headers)
         yield client
 
 

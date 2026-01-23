@@ -48,7 +48,7 @@ class StubFrame:
 
 
 @pytest.fixture(name="api_client")
-def fixture_api_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def fixture_api_client(monkeypatch: pytest.MonkeyPatch, auth_headers) -> TestClient:
     """Return a TestClient with deterministic cache dependencies."""
 
     monkeypatch.setattr(api, "build_universe", lambda limit, validate=True: (["ACME"], DummyFortune()))
@@ -79,6 +79,7 @@ def fixture_api_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(api, "schedule_cache_refresh", _noop_refresh)
 
     with TestClient(api.app) as client:
+        client.headers.update(auth_headers)
         yield client
 
 
@@ -105,7 +106,13 @@ def _assert_cache_headers(response, ttl: int) -> None:
         ),
     ),
 )
-def test_cache_headers_and_etag(api_client: TestClient, path: str, params: dict[str, str], ttl_attr: str) -> None:
+def test_cache_headers_and_etag(
+    api_client: TestClient,
+    path: str,
+    params: dict[str, str],
+    ttl_attr: str,
+    auth_headers,
+) -> None:
     response = api_client.get(path, params=params)
     assert response.status_code == 200
 
@@ -117,7 +124,11 @@ def test_cache_headers_and_etag(api_client: TestClient, path: str, params: dict[
     digest = hashlib.sha256(response.content).hexdigest()
     assert etag == f'"{digest}"'
 
-    revalidated = api_client.get(path, params=params, headers={"If-None-Match": etag})
+    revalidated = api_client.get(
+        path,
+        params=params,
+        headers={**auth_headers, "If-None-Match": etag},
+    )
     assert revalidated.status_code == 304
     assert revalidated.content == b""
     _assert_cache_headers(revalidated, ttl)

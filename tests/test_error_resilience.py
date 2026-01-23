@@ -41,7 +41,7 @@ async def test_fetch_many_async_records_structured_errors(caplog):
     assert any(entry.get("event") == "async_fetch_failed" for entry in payloads)
 
 
-def test_prices_endpoint_surfaces_datasource_error(monkeypatch):
+def test_prices_endpoint_surfaces_datasource_error(monkeypatch, auth_headers):
     reset_error_metrics()
 
     def _boom(*args, **kwargs):
@@ -53,7 +53,11 @@ def test_prices_endpoint_surfaces_datasource_error(monkeypatch):
     )
 
     with TestClient(hv_app) as client:
-        response = client.get("/prices", params={"tickers": "AAPL", "lookback_days": 30})
+        response = client.get(
+            "/prices",
+            params={"tickers": "AAPL", "lookback_days": 30},
+            headers=auth_headers,
+        )
 
     assert response.status_code == 502
     assert "Upstream feed" in response.json()["detail"]
@@ -61,7 +65,7 @@ def test_prices_endpoint_surfaces_datasource_error(monkeypatch):
     assert metrics.get(ErrorCode.DATA_SOURCE.value, 0) >= 1
 
 
-def test_metrics_endpoint_wraps_compute_error(monkeypatch, caplog):
+def test_metrics_endpoint_wraps_compute_error(monkeypatch, caplog, auth_headers):
     reset_error_metrics()
     caplog.set_level(logging.ERROR)
 
@@ -87,6 +91,7 @@ def test_metrics_endpoint_wraps_compute_error(monkeypatch, caplog):
                 "lookback_days": 30,
                 "min_days": 30,
             },
+            headers=auth_headers,
         )
 
     assert response.status_code == 500

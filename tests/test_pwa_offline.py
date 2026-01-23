@@ -98,9 +98,10 @@ def uvicorn_server(_apply_app_overrides: None) -> str:
 
 
 @pytest.mark.e2e
-def test_pwa_offline_sync(page: Page, uvicorn_server: str) -> None:
+def test_pwa_offline_sync(page: Page, uvicorn_server: str, api_key: str) -> None:
     page.set_default_timeout(10000)
     base_url = uvicorn_server
+    page.add_init_script(f"localStorage.setItem('hvApiKey', {api_key!r});")
 
     page.goto(f"{base_url}/", wait_until="networkidle")
     page.wait_for_selector("#annotations-container .annotation-card")
@@ -130,6 +131,7 @@ def test_pwa_offline_sync(page: Page, uvicorn_server: str) -> None:
             f"{base_url}/annotations/AAPL",
             json={"note": "server-wins", "client_timestamp": datetime.utcnow().isoformat()},
             timeout=5,
+            headers={"Authorization": f"Bearer {api_key}"},
         )
         assert response.status_code == 200
 

@@ -57,7 +57,7 @@ def _stub_prices_dataframe() -> pd.DataFrame:
     return pd.DataFrame({"Close": [1, 1.2, 1.3, 1.5, 1.4]}, index=idx)
 
 
-def test_rest_api_survives_redis_outage(monkeypatch):
+def test_rest_api_survives_redis_outage(monkeypatch, auth_headers):
     """The API should stay responsive if Redis is unavailable on startup."""
 
     reset_error_metrics()
@@ -74,7 +74,11 @@ def test_rest_api_survives_redis_outage(monkeypatch):
 
     with TestClient(hv_api.app) as client:
         start = time.perf_counter()
-        response = client.get("/prices", params={"tickers": "AAPL", "lookback_days": 30})
+        response = client.get(
+            "/prices",
+            params={"tickers": "AAPL", "lookback_days": 30},
+            headers=auth_headers,
+        )
         latency = time.perf_counter() - start
         assert hv_api.app.state.cache_health == "degraded"
 
@@ -84,7 +88,7 @@ def test_rest_api_survives_redis_outage(monkeypatch):
     assert isinstance(backend, InMemoryBackend)
 
 
-def test_prices_endpoint_handles_datasource_outage(monkeypatch):
+def test_prices_endpoint_handles_datasource_outage(monkeypatch, auth_headers):
     """Even during upstream failures the API should respond quickly with 502."""
 
     reset_error_metrics()
@@ -99,7 +103,11 @@ def test_prices_endpoint_handles_datasource_outage(monkeypatch):
 
     with TestClient(hv_api.app) as client:
         start = time.perf_counter()
-        response = client.get("/prices", params={"tickers": "FAIL", "lookback_days": 30})
+        response = client.get(
+            "/prices",
+            params={"tickers": "FAIL", "lookback_days": 30},
+            headers=auth_headers,
+        )
         latency = time.perf_counter() - start
 
     assert response.status_code == 502
