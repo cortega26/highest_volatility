@@ -1,249 +1,142 @@
 # Highest Volatility Audit Report
-Date: 2026-01-22
 
-This report follows the A00 audit program (A-1 through A8, then A4b).
-Evidence references point to files in the repository.
+Date: 2026-01-23
+Repository: c:\Users\corte\VS Code Projects\highest_volatility
 
-## A-1 Architecture and System Context Pack
+## Audit metadata
+- Reviewer: Codex CLI
+- Model: gpt-5 (exact model id not exposed by runtime); fallbacks: none.
+- Determinism: requested temperature 0.0-0.2; seed not exposed by runtime.
+- Scope: static review of local repository files listed below; no external services invoked.
 
-### System context (text diagram)
-- Users and automation
-  - CLI users run `python -m highest_volatility` or `highest_volatility.cli`.
-  - Streamlit users run `streamlit run src/highest_volatility/app/streamlit_app.py`.
-  - API clients call FastAPI endpoints `/universe`, `/prices`, `/metrics`.
-  - PWA users load the web app served by FastAPI at `/` and use offline annotations.
-- Core system
-  - `highest_volatility` Python package provides universe building, price download, metrics.
-- External systems
-  - Yahoo Finance via `yfinance` and async HTTP datasource.
-  - Fortune list via Selenium scraping of `us500.com`.
-- Data stores and caches
-  - On-disk price cache in `cache/prices/<interval>`.
-  - Redis cache for API response caching (FastAPICache).
-  - In-memory annotation store in the FastAPI process.
-  - PWA IndexedDB for offline mutation queue and audit trail.
+## Scope and method
+- Goals: verify data ingestion and cache correctness, API reliability, security boundaries, PWA offline workflow, Streamlit UX stability, observability, and build reproducibility.
+- Method: file-by-file static inspection, cross-check docs against implementation, and review unit tests where present.
+- Out of scope: production infrastructure configs, live Yahoo Finance or Redis calls, and runtime performance profiling.
 
-Evidence: `src/highest_volatility/app/cli.py`, `src/highest_volatility/app/streamlit_app.py`, `src/highest_volatility/app/api.py`, `src/highest_volatility/ingest/prices.py`, `src/highest_volatility/universe.py`, `src/highest_volatility/web/main.js`.
+## Summary
+- Findings tracked: 5 total; 1 open, 4 closed. See `docs/audit/findings_ledger.md`.
+- Highest risk: API endpoints still lack authentication and authorization (F-0001, S1).
 
-### Container diagram (text)
-- CLI container
-  - Entrypoint: `src/highest_volatility/app/cli.py`.
-  - Depends on: universe builder, price downloader, metric registry, local cache.
-- Streamlit UI container
-  - Entrypoint: `src/highest_volatility/app/streamlit_app.py`.
-  - Depends on: universe builder, price downloader, metric table helpers.
-- FastAPI service container
-  - Entrypoint: `highest_volatility.app.api:app` (Docker/uvicorn).
-  - Exposes: `/universe`, `/prices`, `/metrics`, `/healthz`, `/readyz`, `/annotations`.
-  - Background task: cache refresh loop.
-  - Serves: PWA static assets under `/web` and root `/`.
-- Data plane
-  - Local cache in `cache/prices` (Parquet + JSON manifest).
-  - Redis (optional) for API response caching.
+## Detailed review by audit area
 
-Evidence: `README.md`, `Dockerfile`, `src/highest_volatility/app/api.py`, `src/highest_volatility/cache/store.py`, `src/highest_volatility/pipeline/cache_refresh.py`.
+### A1 Data ingestion and cache hydration
+Objective: ensure cache data can be hydrated and refreshed safely across intervals.
 
-### Runtime topology table
-| Component | Runtime | Entrypoint | Env vars (examples) | Dependencies | Ports | Persistence |
-| --- | --- | --- | --- | --- | --- | --- |
-| CLI | Python 3.10+ | `highest_volatility.app.cli:main` | none required | Yahoo Finance, Selenium | n/a | local cache, optional CSV/SQLite outputs |
-| Streamlit UI | Python 3.10+ | `streamlit run src/highest_volatility/app/streamlit_app.py` | none required | Yahoo Finance, Selenium | 8501 (default) | local cache |
-| FastAPI API | Python 3.10+ | `uvicorn highest_volatility.app.api:app` | `HV_*`, `HV_REDIS_URL` | Redis, Yahoo Finance | 8000 | local cache, Redis |
-| Cache refresh worker | Async task | `schedule_cache_refresh` | `HV_CACHE_REFRESH_INTERVAL` | Yahoo Finance, local cache | n/a | local cache |
-| PWA frontend | Browser | `/` and `/web/*` | n/a | IndexedDB, service worker | n/a | IndexedDB |
-
-Evidence: `src/highest_volatility/app/api.py`, `src/highest_volatility/pipeline/cache_refresh.py`, `README.md`.
-
-### Trust boundaries and data classification
-- Boundary: browser or client -> FastAPI. All API inputs are untrusted.
-- Boundary: FastAPI/CLI -> Yahoo Finance and `us500.com` (external systems).
-- Boundary: FastAPI -> Redis (external service).
-- Boundary: local filesystem for `cache/prices`.
-
-Data classification:
-- Public data: ticker symbols, price history, derived metrics.
-- User-provided data: annotation notes (treat as potentially sensitive).
-- Operational data: logs and error context (should be redacted).
-
-Evidence: `src/highest_volatility/security/validation.py`, `src/highest_volatility/logging.py`, `src/highest_volatility/app/api.py`.
-
-### Critical invariants (must not break)
-- Ticker normalization and deduplication preserve Fortune rankings.
-- `min_days` filtering prevents metrics on insufficient history.
-- Cache manifests match data (version, row count, date range).
-- Price frames sorted and without duplicate indices.
-- API inputs validated for range and format.
-
-Evidence: `src/highest_volatility/universe.py`, `src/highest_volatility/app/sanitization.py`, `src/highest_volatility/pipeline/validation.py`, `src/highest_volatility/security/validation.py`.
-
-### Critical journeys (sampling anchors)
-1. CLI analysis: build universe -> download prices -> sanitize -> compute metrics -> output.
-2. API metrics: `/metrics` -> sanitize -> download prices -> compute metric -> JSON response.
-3. Streamlit UI: config -> build universe -> download prices -> sanitize -> compute -> charts.
-4. PWA offline annotations: service worker queue -> `/annotations` write -> merge -> audit trail.
-
-Evidence: `src/highest_volatility/app/cli.py`, `src/highest_volatility/app/api.py`, `src/highest_volatility/app/streamlit_app.py`, `src/highest_volatility/web/*`.
-
-### Glossary (domain language)
-- Universe: set of tickers from the Fortune list.
-- Fortune list: ranked Fortune 500 entries scraped via Selenium.
-- Lookback days: rolling window size for price history.
-- Interval: Yahoo Finance interval string (1d, 1h, 15m, etc.).
-- Metric: computed volatility or risk measure (cc_vol, gk_vol, etc.).
-- Cache manifest: JSON metadata describing cached price data.
-- Cache refresh: background re-download of cached tickers.
-- Annotation: user note attached to a ticker in the PWA.
-- PWA: progressive web app served by FastAPI root.
-
-## A2 Security, AppSec, Threat Model
-
-Threat model (lightweight):
-- Assets: cached price data, annotation notes, API availability, Redis cache.
-- Actors: public users, internal analysts, automated clients, unauthenticated internet.
-- Entrypoints: `/universe`, `/prices`, `/metrics`, `/annotations`, `/healthz`, `/readyz`.
-- Trust boundaries: client to API, API to external data sources, API to Redis.
-
-Top abuse cases (non-exhaustive):
-- Unauthorized write to `/annotations` to tamper with audit trail.
-- Excessive requests to `/prices` or `/metrics` to exhaust rate limit.
-- Injection via ticker parameters (mitigated by validation).
-- Redis outage causes degraded caching (handled with fallback).
+Files reviewed and steps:
+- `src/highest_volatility/cache/store.py`
+  - Verified `HV_CACHE_ROOT` expansion via `expand_env_path` to avoid unresolved placeholders.
+  - Confirmed cache hydration uses `/prices` with `tickers` and `interval` params.
+  - Checked `orient="split"` parsing and single-ticker extraction logic.
+  - Verified manifest versioning and corrupt-manifest cleanup.
+- `src/highest_volatility/ingest/prices.py`
+  - Reviewed cache fetch plan, incremental merge flow, and fingerprint refresh logic.
+  - Checked retry behavior and batch download concurrency using thread pools.
+- `src/highest_volatility/pipeline/cache_refresh.py`
+  - Verified background refresh iterates cached tickers via `asyncio.to_thread`.
+  - Confirmed Prometheus metrics for job duration and result counts.
+- `scripts/refresh_cache_all_intervals.py`
+  - Reviewed interval handling, per-interval lookback policy, failure logging, and CSV output.
+- `tests/test_refresh_cache_all_intervals.py`
+  - Confirmed happy-path and failure-path coverage for refresh reporting.
 
 Findings:
-- F-0001 (S1) Lack of authentication/authorization on API endpoints.
-
-Notes:
-- Input validation exists for ticker, interval, and metric parameters.
-- Security headers are set in the API middleware.
-
-Evidence: `src/highest_volatility/app/api.py`, `src/highest_volatility/security/validation.py`.
-
-## A6 Release, Environment, Change Safety
-
-Environment map:
-- Local dev: direct Python execution, `pip install -r requirements.txt`.
-- Docker: `uvicorn` in container, healthcheck on `/healthz`.
-- GitHub Actions: scheduled workflows for price fetch and Fortune list updates.
-
-Configuration inventory (non-secret):
-- `HV_LOOKBACK_DAYS`, `HV_INTERVAL`, `HV_PREPOST`, `HV_TOP_N`, `HV_METRIC`, `HV_MIN_DAYS`.
-- `HV_REDIS_URL`, `HV_CACHE_TTL_*`, `HV_RATE_LIMIT`, `HV_CACHE_REFRESH_INTERVAL`.
-- `HV_CACHE_ROOT`, `HV_API_BASE_URL` (cache hydration).
-
-Release safety observations:
-- Health and readiness endpoints exist and are used by Docker healthcheck.
-- No pinning of Python package versions in `requirements.txt` or Docker builds.
-
-Findings:
-- F-0004 (S2) Non-deterministic builds due to unpinned dependencies.
-
-Evidence: `Dockerfile`, `requirements.txt`, `README.md`, `.github/workflows/*.yml`.
-
-## A1 Business Logic and Behavioral Integrity
-
-Invariants review:
-- Universe builder preserves rank alignment and normalization.
-- Sanitization removes short or duplicate time series before metrics.
-- Cache validation enforces index continuity and manifest alignment.
-
-Findings:
-- F-0002 (S2) Cache hydration points to a non-existent API endpoint.
-- F-0003 (S2) Annotation audit trail stored in memory only.
-
-Evidence: `src/highest_volatility/cache/store.py`, `src/highest_volatility/app/api.py`, `docs/api.md`.
-
-## A0 Project Structure and Modularity (Lite)
-
-Observations:
-- Core code is organized under `src/highest_volatility` with clear subpackages.
-- Root directory contains debug artifacts and CSVs that are not part of the runtime.
-
-Risks:
-- Root clutter may reduce discoverability and packaging hygiene.
-
-No blocking structural issues observed for ship safety.
-
-Evidence: repository root, `src/highest_volatility/*`.
-
-## A4a Engineering Quality, Tests, Maintainability, Performance
-
-Test posture:
-- Unit and integration tests cover CLI, API, cache, sanitization, and metrics.
-- E2E PWA offline sync test exists with Playwright.
-- Chaos experiments and performance benchmarks are present.
+- F-0002 is resolved: cache hydration aligns with the `/prices` endpoint and split payloads.
 
 Performance notes:
-- `additional_volatility_measures` is optimized to reduce repeated coercions.
-- Complexity (hot path):
-  - `additional_volatility_measures`: O(F * N + T * N) where F = fields, N = rows, T = tickers.
-  - `download_batch`: O(T) downloads with chunking and thread pool.
+- Cache refresh complexity is O(T) per interval for tickers T, dominated by network I/O.
+- Micro-benchmark suggestion: `time python scripts/refresh_cache_all_intervals.py --intervals 1d --tickers AAPL MSFT --max-workers 1 --chunk-sleep 0`.
 
-Micro-benchmark:
-- `python scripts/benchmarks/ohlc_volatility_perf.py --rows 100000 --tickers 500 --repeats 3 --interval 1m`
+### A2 Security and API boundaries
+Objective: validate input handling and protect write endpoints.
 
-Evidence: `tests/*`, `scripts/benchmarks/ohlc_volatility_perf.py`, `docs/reliability/testing.md`.
-
-## A5 Process, Operations, DevEx
-
-Observations:
-- Scheduled workflows exist for price fetch and Fortune list updates.
-- SLO and reliability docs exist; health endpoints implemented.
-
-Gaps:
-- No CI workflow running unit tests on push or pull request.
-- Prometheus metrics referenced in docs are not defined in code or deployment configs.
+Files reviewed and steps:
+- `src/highest_volatility/app/api.py`
+  - Verified SlowAPI rate limiting and security headers middleware.
+  - Checked input sanitization for tickers, intervals, and numeric bounds.
+  - Confirmed annotations persist via SQLite rather than in-memory storage.
+  - Reviewed readiness and health logic for Redis availability.
+- `src/highest_volatility/security/validation.py`
+  - Verified ticker, interval, and metric validation logic.
+- `docs/api.md`
+  - Cross-checked route contracts, parameters, and error handling with implementation.
 
 Findings:
-- F-0005 (S2) CI and observability gaps relative to documented SLOs.
+- F-0001 remains open: API endpoints are unauthenticated.
 
-Evidence: `.github/workflows/*.yml`, `docs/reliability/slo.md`, `src/highest_volatility/logging.py`.
+### A3 Streamlit UI reliability
+Objective: ensure the UI renders without Streamlit runtime errors.
 
-## A3 Data and AI Lineage
+Files reviewed and steps:
+- `src/highest_volatility/app/streamlit_app.py`
+  - Confirmed `st.altair_chart` uses `use_container_width=True`.
+  - Verified `_clamp_int` prevents `min_days` exceeding `lookback_days`.
+  - Reviewed data table rendering and chart sizing.
+- `tests/test_streamlit_inputs.py`
+  - Validated clamp logic for in-range and above-max values.
 
-Lineage:
-- Fortune list (Selenium) -> universe cache -> CLI/Streamlit/API.
-- Yahoo Finance data -> on-disk cache -> metrics -> API/UI outputs.
-- PWA annotations -> FastAPI in-memory store -> PWA audit view.
+Findings:
+- No open findings in this area.
 
-Data quality controls:
-- Cache validation checks for gaps and manifest alignment.
-- Sanitization drops short or duplicate series prior to metrics.
+### A4 PWA offline annotations
+Objective: ensure offline queueing, sync, and audit trails operate consistently.
 
-AI/ML:
-- No ML training or inference paths detected.
+Files reviewed and steps:
+- `src/highest_volatility/web/main.js`
+  - Verified offline/online state handling and sync UX feedback.
+- `src/highest_volatility/web/data-layer.js`
+  - Reviewed queueing, last-write-wins conflict policy, and audit log entries.
+  - Confirmed annotation PUT payload includes `client_timestamp`.
+- `src/highest_volatility/web/db.js`
+  - Verified IndexedDB schema and mutation/audit storage.
+- `src/highest_volatility/web/service-worker.js`
+  - Checked static precache list, API cache fallback, and offline mutation storage.
 
-Evidence: `src/highest_volatility/universe.py`, `src/highest_volatility/ingest/prices.py`, `src/highest_volatility/pipeline/validation.py`.
+Findings:
+- No open findings; server-side persistence is handled via SQLite.
 
-## A7 Compliance and Governance
+### A5 Observability and SLO alignment
+Objective: confirm metrics exist for documented SLOs and CI validates changes.
 
-Applicability:
-- Primarily public market data with optional user-generated notes.
+Files reviewed and steps:
+- `src/highest_volatility/app/api.py`
+  - Verified `hv_fastapi_requests_total` and `hv_fastapi_request_latency_ms`.
+- `src/highest_volatility/pipeline/cache_refresh.py`
+  - Verified `hv_ingestor_job_duration_seconds` and `hv_ingestor_job_results_total`.
+- `docs/reliability/slo.md`
+  - Confirmed PromQL queries match the implemented metrics.
+- `.github/workflows/ci.yml`
+  - Confirmed PR CI executes pytest for non-e2e/chaos tests.
 
-Gaps to address if serving external users:
-- Define retention and deletion policy for annotation notes.
-- Clarify audit trail durability expectations.
+Findings:
+- F-0005 is closed; metrics and CI align with SLO documentation.
 
-Evidence: `README.md`, `src/highest_volatility/app/api.py`.
+### A6 Build and configuration reproducibility
+Objective: ensure deterministic builds and safe environment configuration.
 
-## A8 FinOps and Efficiency
+Files reviewed and steps:
+- `requirements.txt`
+  - Confirmed runtime dependencies are pinned.
+- `Dockerfile`
+  - Verified build uses pinned requirements and includes a healthcheck.
+- `src/highest_volatility/config/paths.py`
+  - Verified env var expansion and unresolved placeholder checks.
+- `src/highest_volatility/config/environment.py`
+  - Confirmed Windows defaults prevent `%SystemDrive%` folder creation.
+- `src/highest_volatility/__init__.py`
+  - Verified Windows environment defaults are applied on import.
 
-Cost drivers:
-- Selenium scraping and Yahoo Finance downloads.
-- Redis cache and storage if deployed.
+Findings:
+- F-0004 is closed: runtime dependencies are pinned and Docker builds are deterministic.
 
-Efficiency notes:
-- On-disk caching and batch downloads reduce repeated network calls.
-- Background refresh can be tuned via `HV_CACHE_REFRESH_INTERVAL`.
+Residual note:
+- `pyproject.toml` uses unpinned dependency ranges for editable installs; use `requirements.txt` for production builds.
 
-Evidence: `src/highest_volatility/ingest/prices.py`, `src/highest_volatility/cache/store.py`.
+## Test and validation commands
+- Unit tests: `pytest -m "not e2e and not chaos"` (expected pass).
+- Streamlit input tests: `pytest tests/test_streamlit_inputs.py` (expected pass).
+- Cache refresh script tests: `pytest tests/test_refresh_cache_all_intervals.py` (expected pass).
+- Lint (if enabled): `ruff check src tests scripts` (expected pass if ruff is installed).
 
-## A4b UX, Accessibility, Design System
-
-Gate status:
-- A2 and A1 have open findings (see ledger). Defer major UX refactors until ship-safety issues are addressed.
-
-Notes:
-- Streamlit UI includes download buttons and warning banners for empty data.
-- PWA includes offline indicators and sync feedback.
-
-Evidence: `src/highest_volatility/app/streamlit_app.py`, `src/highest_volatility/web/main.js`.
+## Open items
+- F-0001: Add authentication and authorization for API endpoints.

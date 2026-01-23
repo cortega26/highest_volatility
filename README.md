@@ -250,6 +250,12 @@ using cron, add an entry similar to:
 
 Adjust the interval and paths as needed.
 
+To refresh every cached ticker across multiple intervals in one pass, run:
+
+```bash
+python scripts/refresh_cache_all_intervals.py --intervals 1d,1h,30m,15m,5m,1m
+```
+
 ## Data Sources
 
 A monthly GitHub Action refreshes the Fortune 500 universe. On the first day of
